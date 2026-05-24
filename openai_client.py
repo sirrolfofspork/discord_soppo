@@ -1,7 +1,8 @@
 """
-Minimal async client for OpenAI Chat Completions (text only, no tools).
+Minimal async client for OpenAI-compatible Chat Completions (text only, no tools).
 
-Callers pass the API key and model; this module does not import application config.
+Callers pass the API key, model, and optional base URL; this module does not import
+application config.
 """
 
 from __future__ import annotations
@@ -37,17 +38,21 @@ async def openai_chat(
     api_key: str,
     model: str,
     messages: list[dict[str, Any]],
+    base_url: str | None = None,
     temperature: float = 0.9,
     top_p: float = 0.9,
     max_tokens: int = 160,
     timeout_seconds: float = 90.0,
 ) -> str:
     """
-    Call OpenAI chat completions and return the assistant message text only.
+    Call OpenAI-compatible chat completions and return the assistant message text only.
 
     messages use the same shape as Ollama: role + content strings.
     """
-    client = AsyncOpenAI(api_key=api_key, timeout=timeout_seconds)
+    client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout_seconds}
+    if base_url is not None:
+        client_kwargs["base_url"] = base_url
+    client = AsyncOpenAI(**client_kwargs)
     api_msgs = _api_messages(messages)
     if not api_msgs:
         raise OpenAIClientError("No valid messages to send to OpenAI")

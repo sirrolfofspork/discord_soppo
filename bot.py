@@ -500,6 +500,12 @@ class SoppoBot(discord.Client):
         logger.info("Monitored channel name: #%s (case-insensitive)", self.config.discord_channel_name)
         if self.config.llm_backend == "openai":
             logger.info("LLM backend: openai (model=%s)", self.config.openai_model)
+        elif self.config.llm_backend == "lmstudio":
+            logger.info(
+                "LLM backend: lmstudio (base_url=%s, model=%s)",
+                self.config.lmstudio_base_url,
+                self.config.lmstudio_model,
+            )
         else:
             logger.info(
                 "LLM backend: ollama (url=%s, model=%s)",
@@ -639,6 +645,9 @@ class SoppoBot(discord.Client):
                     ollama_model=self.config.ollama_model,
                     openai_api_key=self.config.openai_api_key,
                     openai_model=self.config.openai_model,
+                    lmstudio_base_url=self.config.lmstudio_base_url,
+                    lmstudio_api_key=self.config.lmstudio_api_key,
+                    lmstudio_model=self.config.lmstudio_model,
                 )
             except OllamaError as e:
                 if str(e) == "Ollama returned empty content":

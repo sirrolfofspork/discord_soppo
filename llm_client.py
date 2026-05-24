@@ -1,5 +1,5 @@
 """
-LLM routing: trim context, then call Ollama or OpenAI based on backend.
+LLM routing: trim context, then call Ollama or OpenAI-compatible backends.
 
 Main bot code should use ``generate_reply`` and ``trim_messages_to_max_chars`` only.
 """
@@ -11,7 +11,7 @@ from typing import Any, Literal
 from ollama_client import OllamaError, ollama_chat
 from openai_client import OpenAIClientError, openai_chat
 
-LLMBackend = Literal["ollama", "openai"]
+LLMBackend = Literal["ollama", "openai", "lmstudio"]
 
 # Re-export for callers that handle errors by backend
 __all__ = [
@@ -34,10 +34,13 @@ async def generate_reply(
     ollama_model: str,
     openai_api_key: str,
     openai_model: str,
+    lmstudio_base_url: str,
+    lmstudio_api_key: str,
+    lmstudio_model: str,
     timeout_seconds: float = 90.0,
 ) -> str:
     """
-    Single entry point for chat completion: Ollama or OpenAI.
+    Single entry point for chat completion: Ollama, OpenAI, or LM Studio.
 
     Pass all URL/model/key fields; unused fields for the active backend are ignored.
     """
@@ -55,6 +58,17 @@ async def generate_reply(
         return await openai_chat(
             api_key=openai_api_key,
             model=openai_model,
+            messages=messages,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+        )
+    if backend == "lmstudio":
+        return await openai_chat(
+            api_key=lmstudio_api_key,
+            base_url=lmstudio_base_url,
+            model=lmstudio_model,
             messages=messages,
             temperature=temperature,
             top_p=top_p,

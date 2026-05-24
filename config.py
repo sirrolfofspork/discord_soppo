@@ -15,11 +15,14 @@ class Config:
     """Application configuration (immutable after load)."""
 
     discord_bot_token: str
-    llm_backend: str  # "ollama" | "openai"
+    llm_backend: str  # "ollama" | "openai" | "lmstudio"
     ollama_model: str
     ollama_url: str
     openai_api_key: str
     openai_model: str
+    lmstudio_base_url: str
+    lmstudio_api_key: str
+    lmstudio_model: str
     discord_channel_name: str
     spontaneous_reply_chance: float
     reply_cooldown_seconds: float
@@ -88,9 +91,9 @@ def load_config() -> Config:
     token = _require("DISCORD_BOT_TOKEN")
 
     raw_backend = os.getenv("LLM_BACKEND", "ollama").strip().lower()
-    if raw_backend not in ("ollama", "openai"):
+    if raw_backend not in ("ollama", "openai", "lmstudio"):
         raise ValueError(
-            'LLM_BACKEND must be "ollama" or "openai" '
+            'LLM_BACKEND must be "ollama", "openai", or "lmstudio" '
             f"(got {raw_backend!r}). See .env.example."
         )
     llm_backend = raw_backend
@@ -102,10 +105,26 @@ def load_config() -> Config:
     openai_key_raw = os.getenv("OPENAI_API_KEY")
     openai_api_key = str(openai_key_raw).strip() if openai_key_raw else ""
 
+    lmstudio_base_url = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1").strip().rstrip("/")
+    lmstudio_model = os.getenv("LMSTUDIO_MODEL", "local-model").strip()
+    lmstudio_key_raw = os.getenv("LMSTUDIO_API_KEY", "not-needed")
+    lmstudio_api_key = str(lmstudio_key_raw).strip() or "not-needed"
+
     if llm_backend == "openai":
         if not openai_api_key:
             raise ValueError(
                 'OPENAI_API_KEY is required when LLM_BACKEND=openai. '
+                "Set it in .env (see .env.example)."
+            )
+    if llm_backend == "lmstudio":
+        if not lmstudio_base_url:
+            raise ValueError(
+                'LMSTUDIO_BASE_URL is required when LLM_BACKEND=lmstudio. '
+                "Set it in .env (see .env.example)."
+            )
+        if not lmstudio_model:
+            raise ValueError(
+                'LMSTUDIO_MODEL is required when LLM_BACKEND=lmstudio. '
                 "Set it in .env (see .env.example)."
             )
 
@@ -162,6 +181,9 @@ def load_config() -> Config:
         ollama_url=ollama_url,
         openai_api_key=openai_api_key,
         openai_model=openai_model,
+        lmstudio_base_url=lmstudio_base_url,
+        lmstudio_api_key=lmstudio_api_key,
+        lmstudio_model=lmstudio_model,
         discord_channel_name=channel_name,
         spontaneous_reply_chance=chance,
         reply_cooldown_seconds=cooldown,
@@ -182,9 +204,12 @@ def load_config() -> Config:
 
 
 # --- Tunables (documented defaults; real values come from env in load_config) ---
-# LLM_BACKEND                — ollama | openai
+# LLM_BACKEND                — ollama | openai | lmstudio
 # OPENAI_API_KEY             — required if LLM_BACKEND=openai
 # OPENAI_MODEL               — e.g. gpt-5.4-mini
+# LMSTUDIO_BASE_URL          — e.g. http://localhost:1234/v1
+# LMSTUDIO_MODEL             — model name loaded in LM Studio
+# LMSTUDIO_API_KEY           — placeholder key for local OpenAI-compatible API (default not-needed)
 # DISCORD_CHANNEL_NAME       — only this channel name (case-insensitive) is monitored
 # SPONTANEOUS_REPLY_CHANCE   — 0.0–1.0, default 0.10
 # REPLY_COOLDOWN_SECONDS     — seconds between spontaneous replies after any reply

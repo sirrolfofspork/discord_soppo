@@ -1,6 +1,6 @@
 # SOPPO_Python
 
-A small **local Discord chatbot** that role-plays as a video game character. It reads messages in your **`#general`** channel (configurable), sends recent chat context plus the latest line to a **local Ollama** model, and posts the reply back in character.
+A small **local Discord chatbot** that role-plays as a video game character. It reads messages in your **`#general`** channel (configurable), sends recent chat context plus the latest line to a configured LLM backend, and posts the reply back in character.
 
 ## Features
 
@@ -18,7 +18,7 @@ A small **local Discord chatbot** that role-plays as a video game character. It 
 
 - **Python 3.11+**
 - A **Discord bot** application and token ([Discord Developer Portal](https://discord.com/developers/applications)).
-- **Ollama** running locally, with a model pulled (e.g. `qwen3.5:4b`; must match `ollama list`).
+- One configured LLM backend: **Ollama**, **LM Studio** OpenAI-compatible local server, or **OpenAI API**.
 
 ## Setup
 
@@ -63,7 +63,9 @@ On macOS/Linux use `cp .env.example .env`.
 Edit **`.env`**:
 
 - Set **`DISCORD_BOT_TOKEN`** to your bot token.
-- Adjust **`OLLAMA_MODEL`**, **`OLLAMA_URL`**, **`DISCORD_CHANNEL_NAME`**, **`SPONTANEOUS_REPLY_CHANCE`**, **`REPLY_COOLDOWN_SECONDS`**, **`MAX_CONTEXT_MESSAGES`**, **`MAX_PROMPT_CHARS`** if needed.
+- Set **`LLM_BACKEND`** to `ollama`, `lmstudio`, or `openai`.
+- Adjust backend settings such as **`OLLAMA_MODEL`** / **`OLLAMA_URL`**, **`LMSTUDIO_BASE_URL`** / **`LMSTUDIO_MODEL`**, or **`OPENAI_API_KEY`** / **`OPENAI_MODEL`** as needed.
+- Adjust **`DISCORD_CHANNEL_NAME`**, **`SPONTANEOUS_REPLY_CHANCE`**, **`REPLY_COOLDOWN_SECONDS`**, **`MAX_CONTEXT_MESSAGES`**, **`MAX_PROMPT_CHARS`** if needed.
 
 ### 5. Discord bot settings
 
@@ -73,7 +75,9 @@ In the Developer Portal, under **Bot**:
 
 Invite the bot with **applications.commands** (optional for later) and permissions to **Read Messages** / **Send Messages** in the target channel.
 
-### 6. Ollama
+### 6. LLM backend
+
+#### Ollama
 
 Ensure Ollama is running and the model exists, for example:
 
@@ -82,6 +86,29 @@ ollama pull qwen3.5:4b
 ```
 
 Default API base: `http://localhost:11434`.
+
+#### LM Studio
+
+Start LM Studio's local OpenAI-compatible server, load a model, then configure:
+
+```env
+LLM_BACKEND=lmstudio
+LMSTUDIO_BASE_URL=http://localhost:1234/v1
+LMSTUDIO_MODEL=<model-name>
+LMSTUDIO_API_KEY=not-needed
+```
+
+The model name must match what LM Studio exposes through its local server.
+
+#### OpenAI API
+
+Configure:
+
+```env
+LLM_BACKEND=openai
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5.4-mini
+```
 
 ## Run locally
 
@@ -105,8 +132,10 @@ On startup you should see logs similar to:
 | `main.py` | Entry point: logging, `load_dotenv()`, `load_config()`, starts the bot |
 | `config.py` | Reads env vars; tunable defaults documented at bottom of file |
 | `bot.py` | Discord client, intents, `on_message`, history, `should_respond` logic |
-| `llm_client.py` | Ollama `/api/chat` (non-streaming), prompt size trimming helper |
-| `prompts.py` | **Character stub** — edit `build_system_prompt()` |
+| `llm_client.py` | LLM backend router: Ollama, LM Studio, or OpenAI; prompt size trimming helper |
+| `ollama_client.py` | Ollama `/api/chat` backend |
+| `openai_client.py` | OpenAI-compatible chat completions backend used by OpenAI and LM Studio |
+| `prompts.py` | SOPPO character prompt and prompt formatting helpers |
 | `.env.example` | Template for `.env` |
 | `requirements.txt` | Dependencies |
 
@@ -117,8 +146,11 @@ On startup you should see logs similar to:
 | Spontaneous reply chance | `.env` → `SPONTANEOUS_REPLY_CHANCE` |
 | Cooldown after any reply | `.env` → `REPLY_COOLDOWN_SECONDS` |
 | Max messages in memory | `.env` → `MAX_CONTEXT_MESSAGES` |
-| Max context characters to Ollama | `.env` → `MAX_PROMPT_CHARS` |
-| Model name | `.env` → `OLLAMA_MODEL` |
+| Max context characters to LLM | `.env` → `MAX_PROMPT_CHARS` |
+| Backend selection | `.env` → `LLM_BACKEND` |
+| Ollama model name | `.env` → `OLLAMA_MODEL` |
+| LM Studio endpoint/model | `.env` → `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL` |
+| OpenAI model | `.env` → `OPENAI_MODEL` |
 | Channel name filter | `.env` → `DISCORD_CHANNEL_NAME` |
 | Character voice / rules | `prompts.py` → `build_system_prompt()` |
 | Force reply command | Message containing **`!soppo`** (see `bot.py` → `message_has_trigger`) |
@@ -137,6 +169,7 @@ On startup you should see logs similar to:
 | Bot online but never reads text | **Message Content Intent** not enabled in the portal, or bot lacks **View Channel** / **Read Message History** in `#general`. |
 | Bot ignores all messages | Channel is not named like `DISCORD_CHANNEL_NAME` (default `general`), or messages are in a thread / wrong server. |
 | `Could not reach Ollama` | Ollama not running, wrong `OLLAMA_URL`, or firewall blocking `localhost:11434`. |
+| Could not reach LM Studio / connection failed | LM Studio local server is not running, wrong `LMSTUDIO_BASE_URL`, or no model is loaded. |
 | `model '…' not found` / HTTP 404 | That tag is not installed. Run `ollama pull <OLLAMA_MODEL>` or set `OLLAMA_MODEL` to a name from `ollama list`. |
 | Replies too spammy / too quiet | Lower or raise `SPONTANEOUS_REPLY_CHANCE`; increase `REPLY_COOLDOWN_SECONDS`. |
 | `!soppo` does nothing | Must appear as its own token (regex word boundary); not inside another word. |
