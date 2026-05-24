@@ -1,0 +1,17 @@
+{
+  "g11": {
+    "aliases": ["g11", "g 11"],
+    "summary": "[PLACEHOLDER: short factual description]",
+    "soppo_take": "[PLACEHOLDER: short in-character opinion or relationship note]"
+  },
+  "ar_team": {
+    "aliases": ["ar team", "ar-team", "m4a1", "m16a1", "ar-15", "ro635"],
+    "summary": "[PLACEHOLDER: AR Team - minimal factual stub for manual editing]",
+    "soppo_take": "[PLACEHOLDER: SOPPO's view of the team / past-tense refs]"
+  },
+  "griffin": {
+    "aliases": ["griffin", "gk", "griffin & kryuger"],
+    "summary": "[PLACEHOLDER: organization stub]",
+    "soppo_take": "[PLACEHOLDER: how SOPPO talks about it]"
+  }
+}
