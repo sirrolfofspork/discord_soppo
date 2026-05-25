@@ -25,6 +25,11 @@ from llm_client import (
     trim_messages_to_max_chars,
 )
 from lore import build_lore_context_block, find_relevant_lore, load_lore_store
+from memory import (
+    PersistentChannelSummaryMemory,
+    apply_summary_rollover,
+    build_channel_summary_block,
+)
 from prompts import (
     build_assistant_message_wrapper,
     build_current_speaker_context,
@@ -358,6 +363,25 @@ def split_text_for_discord(text: str, hard_limit: int) -> list[str]:
     return [c for c in chunks if c]
 
 
+def build_prompt_messages(
+    *,
+    system_prompt: str,
+    speaker_context: str = "",
+    channel_summary_block: str = "",
+    lore_block: str = "",
+    returning_hint: str = "",
+    history: list[dict[str, str]] | deque[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Assemble LLM messages in the intended context-injection order."""
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    for block in (speaker_context, channel_summary_block, lore_block, returning_hint):
+        if block:
+            messages.append({"role": "system", "content": block})
+    for turn in history or []:
+        messages.append({"role": turn["role"], "content": turn["content"]})
+    return messages
+
+
 class SoppoBot(discord.Client):
     """
     Minimal subclass: on_ready logs, on_message handles the pipeline.
@@ -378,6 +402,7 @@ class SoppoBot(discord.Client):
         self._user_profiles: UserProfilesMap = load_user_profiles()
         # channel_id -> deque of {"role": "user"|"assistant", "content": str}
         self._history: dict[int, deque[dict[str, str]]] = {}
+        self._channel_summary_memory = PersistentChannelSummaryMemory(self.config.memory_store_path)
         self._last_reply_monotonic: dict[int, float] = {}
         self._last_bot_text: dict[int, str] = {}
         # Returning-user tracking: wall clock for "absence" gap; monotonic for greeting cooldowns
@@ -391,6 +416,29 @@ class SoppoBot(discord.Client):
         if channel_id not in self._history:
             self._history[channel_id] = deque(maxlen=self.config.max_context_messages)
         return self._history[channel_id]
+
+    def _guild_id_for_channel(self, channel_id: int) -> int | None:
+        channel = self.get_channel(channel_id)
+        guild = getattr(channel, "guild", None)
+        guild_id = getattr(guild, "id", None)
+        return guild_id if isinstance(guild_id, int) else None
+
+    def _maybe_rollover_channel_summary(self, channel_id: int, guild_id: int | None = None) -> int:
+        """Summarize oldest per-channel history turns when the unsummarized window grows too large."""
+        if guild_id is None:
+            guild_id = self._guild_id_for_channel(channel_id)
+        hist = self._history_for(channel_id)
+        summary, count = apply_summary_rollover(
+            hist,
+            current_summary=self._channel_summary_memory.get_summary(guild_id=guild_id, channel_id=channel_id),
+            threshold=self.config.max_context_messages_before_summary,
+            batch_size=self.config.summary_batch_size,
+            max_summary_chars=self.config.max_channel_summary_chars,
+        )
+        if count:
+            self._channel_summary_memory.set_summary(guild_id=guild_id, channel_id=channel_id, summary=summary)
+            logger.debug("Rolled %d old turn(s) into channel summary for channel_id=%s", count, channel_id)
+        return count
 
     def _get_user_profile(self, user_id: int) -> dict[str, Any] | None:
         """Return the profile dict for this Discord user ID, or None if unknown."""
@@ -560,6 +608,13 @@ class SoppoBot(discord.Client):
             "Inferred follow-up window: %.0f s wall-clock (per user/channel, expires_at)",
             self.config.inferred_followup_window_seconds,
         )
+        logger.info(
+            "Channel summary memory: threshold=%d turns, batch=%d turns, max=%d chars, store=%s",
+            self.config.max_context_messages_before_summary,
+            self.config.summary_batch_size,
+            self.config.max_channel_summary_chars,
+            self.config.memory_store_path,
+        )
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
@@ -581,6 +636,7 @@ class SoppoBot(discord.Client):
             return
 
         ch_id = message.channel.id
+        guild_id = message.guild.id if message.guild else None
         uid = message.author.id
         now_wall = time.time()
         now_mono = time.monotonic()
@@ -624,40 +680,44 @@ class SoppoBot(discord.Client):
                         ),
                     }
                 )
+                self._maybe_rollover_channel_summary(ch_id, guild_id)
                 return
 
             hist = self._history_for(ch_id)
             user_line = build_user_message_wrapper(message.author.display_name, message.content)
             hist.append({"role": "user", "content": user_line})
+            self._maybe_rollover_channel_summary(ch_id, guild_id)
 
             last_bot = self._last_bot_text.get(ch_id)
-            llm_messages: list[dict[str, Any]] = [
-                {"role": "system", "content": build_system_prompt(last_bot_reply=last_bot)}
-            ]
             profile = self._get_user_profile(message.author.id)
             speaker_context = build_current_speaker_context(
                 display_name=message.author.display_name,
                 user_id=message.author.id,
                 profile=profile,
             )
-            if speaker_context:
-                llm_messages.append({"role": "system", "content": speaker_context})
+
+            channel_summary_block = build_channel_summary_block(
+                self._channel_summary_memory.get_summary(guild_id=guild_id, channel_id=ch_id)
+            )
 
             lore_matches = find_relevant_lore(message.content, self._lore_store)
             lore_block = build_lore_context_block(lore_matches)
-            if lore_block:
-                llm_messages.append({"role": "system", "content": lore_block})
 
             add_returning_hint = self._should_add_returning_user_greeting(
                 channel_id=ch_id,
                 user_id=uid,
                 now_monotonic=now_mono,
             )
-            if add_returning_hint:
-                llm_messages.append({"role": "system", "content": RETURNING_USER_LLM_HINT})
+            returning_hint = RETURNING_USER_LLM_HINT if add_returning_hint else ""
 
-            for turn in hist:
-                llm_messages.append({"role": turn["role"], "content": turn["content"]})
+            llm_messages = build_prompt_messages(
+                system_prompt=build_system_prompt(last_bot_reply=last_bot),
+                speaker_context=speaker_context,
+                channel_summary_block=channel_summary_block,
+                lore_block=lore_block,
+                returning_hint=returning_hint,
+                history=hist,
+            )
 
             llm_messages = trim_messages_to_max_chars(
                 llm_messages,
@@ -726,6 +786,7 @@ class SoppoBot(discord.Client):
                     "content": build_assistant_message_wrapper(reply_text),
                 }
             )
+            self._maybe_rollover_channel_summary(ch_id, guild_id)
             self._last_reply_monotonic[ch_id] = time.monotonic()
             self._last_bot_text[ch_id] = reply_text
             if add_returning_hint:

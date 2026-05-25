@@ -7,7 +7,7 @@ A small **local Discord chatbot** that role-plays as a video game character. It 
 - **Secure token**: `DISCORD_BOT_TOKEN` from environment (via `.env` + `python-dotenv`).
 - **Channel filter**: Prefer exact channel IDs via `DISCORD_ALLOWED_CHANNEL_IDS`; if unset, fall back to channel name via `DISCORD_CHANNEL_NAME` (default `general`), case-insensitive.
 - **Ignores bots** and its own messages.
-- **Rolling memory**: Last N messages per channel (`MAX_CONTEXT_MESSAGES`), with a **character cap** (`MAX_PROMPT_CHARS`).
+- **Rolling memory**: Recent unsummarized messages per channel (`MAX_CONTEXT_MESSAGES`) plus compact per-channel summaries when history exceeds `MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY`, with a **character cap** (`MAX_PROMPT_CHARS`).
 - **When it replies**:
   - **Always** when @mentioned, when replying to the bot’s message, or when someone uses **`!soppo`**.
   - **Sometimes** at random (`SPONTANEOUS_REPLY_CHANCE`, default **0.10**), with a **cooldown** after any reply (`REPLY_COOLDOWN_SECONDS`).
@@ -65,7 +65,7 @@ Edit **`.env`**:
 - Set **`DISCORD_BOT_TOKEN`** to your bot token.
 - Set **`LLM_BACKEND`** to `ollama`, `lmstudio`, or `openai`.
 - Adjust backend settings such as **`OLLAMA_MODEL`** / **`OLLAMA_URL`**, **`LMSTUDIO_BASE_URL`** / **`LMSTUDIO_MODEL`**, or **`OPENAI_API_KEY`** / **`OPENAI_MODEL`** as needed.
-- Adjust **`DISCORD_ALLOWED_CHANNEL_IDS`** for exact per-server channel gating, or leave it empty and use **`DISCORD_CHANNEL_NAME`** as the legacy fallback. Adjust **`SPONTANEOUS_REPLY_CHANCE`**, **`REPLY_COOLDOWN_SECONDS`**, **`MAX_CONTEXT_MESSAGES`**, **`MAX_PROMPT_CHARS`** if needed.
+- Adjust **`DISCORD_ALLOWED_CHANNEL_IDS`** for exact per-server channel gating, or leave it empty and use **`DISCORD_CHANNEL_NAME`** as the legacy fallback. Adjust **`SPONTANEOUS_REPLY_CHANCE`**, **`REPLY_COOLDOWN_SECONDS`**, **`MAX_CONTEXT_MESSAGES`**, **`MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY`**, **`SUMMARY_BATCH_SIZE`**, **`MAX_CHANNEL_SUMMARY_CHARS`**, **`MEMORY_STORE_PATH`**, **`MAX_PROMPT_CHARS`** if needed.
 
 Channel filtering priority:
 
@@ -136,6 +136,7 @@ On startup you should see logs similar to:
 - **Guilds** connected
 - Allowed **channel IDs**, or monitored **channel name** fallback
 - **Spontaneous reply chance** and **cooldown**
+- Channel summary memory threshold, batch size, and summary character cap
 
 ## Project layout
 
@@ -143,7 +144,9 @@ On startup you should see logs similar to:
 |------|------|
 | `main.py` | Entry point: logging, `load_dotenv()`, `load_config()`, starts the bot |
 | `config.py` | Reads env vars; tunable defaults documented at bottom of file |
-| `bot.py` | Discord client, intents, `on_message`, history, `should_respond` logic |
+| `bot.py` | Discord client, intents, `on_message`, history, summary-memory rollover, `should_respond` logic |
+| `memory.py` | Channel-specific summary-memory helpers backed by `memory_store.py` |
+| `memory_store.py` | Generic LangGraph-style namespace/key JSON memory store |
 | `llm_client.py` | LLM backend router: Ollama, LM Studio, or OpenAI; prompt size trimming helper |
 | `ollama_client.py` | Ollama `/api/chat` backend |
 | `openai_client.py` | OpenAI-compatible chat completions backend used by OpenAI and LM Studio |
@@ -157,7 +160,11 @@ On startup you should see logs similar to:
 |------|--------|
 | Spontaneous reply chance | `.env` → `SPONTANEOUS_REPLY_CHANCE` |
 | Cooldown after any reply | `.env` → `REPLY_COOLDOWN_SECONDS` |
-| Max messages in memory | `.env` → `MAX_CONTEXT_MESSAGES` |
+| Max unsummarized messages in memory | `.env` → `MAX_CONTEXT_MESSAGES` |
+| Summary rollover threshold | `.env` → `MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY` |
+| Summary batch size | `.env` → `SUMMARY_BATCH_SIZE` |
+| Max per-channel summary chars | `.env` → `MAX_CHANNEL_SUMMARY_CHARS` |
+| Channel summary JSON store path | `.env` → `MEMORY_STORE_PATH` |
 | Max context characters to LLM | `.env` → `MAX_PROMPT_CHARS` |
 | Backend selection | `.env` → `LLM_BACKEND` |
 | Ollama model name | `.env` → `OLLAMA_MODEL` |

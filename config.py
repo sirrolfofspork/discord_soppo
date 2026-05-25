@@ -28,6 +28,10 @@ class Config:
     spontaneous_reply_chance: float
     reply_cooldown_seconds: float
     max_context_messages: int
+    max_context_messages_before_summary: int
+    summary_batch_size: int
+    max_channel_summary_chars: int
+    memory_store_path: str
     max_prompt_chars: int
     # Generation (passed through to llm_client by bot.py)
     temperature: float
@@ -161,6 +165,17 @@ def load_config() -> Config:
     max_ctx = _int_env("MAX_CONTEXT_MESSAGES", 20)
     max_ctx = max(2, min(100, max_ctx))
 
+    summary_threshold = _int_env("MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY", 16)
+    summary_threshold = max(2, min(max_ctx, summary_threshold))
+
+    summary_batch_size = _int_env("SUMMARY_BATCH_SIZE", 6)
+    summary_batch_size = max(1, min(summary_threshold, summary_batch_size))
+
+    max_summary_chars = _int_env("MAX_CHANNEL_SUMMARY_CHARS", 1200)
+    max_summary_chars = max(200, min(10_000, max_summary_chars))
+
+    memory_store_path = os.getenv("MEMORY_STORE_PATH", "memory_store.json").strip() or "memory_store.json"
+
     max_chars = _int_env("MAX_PROMPT_CHARS", 8000)
     max_chars = max(500, min(100_000, max_chars))
 
@@ -210,6 +225,10 @@ def load_config() -> Config:
         spontaneous_reply_chance=chance,
         reply_cooldown_seconds=cooldown,
         max_context_messages=max_ctx,
+        max_context_messages_before_summary=summary_threshold,
+        summary_batch_size=summary_batch_size,
+        max_channel_summary_chars=max_summary_chars,
+        memory_store_path=memory_store_path,
         max_prompt_chars=max_chars,
         temperature=temperature,
         top_p=top_p,
@@ -237,6 +256,10 @@ def load_config() -> Config:
 # SPONTANEOUS_REPLY_CHANCE   — 0.0–1.0, default 0.10
 # REPLY_COOLDOWN_SECONDS     — seconds between spontaneous replies after any reply
 # MAX_CONTEXT_MESSAGES       — rolling deque size per channel
+# MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY — summarize oldest turns when unsummarized history exceeds this
+# SUMMARY_BATCH_SIZE         — number of oldest turns to summarize per rollover
+# MAX_CHANNEL_SUMMARY_CHARS  — max chars retained in per-channel summary memory
+# MEMORY_STORE_PATH          — JSON file for persisted channel summaries (default memory_store.json)
 # MAX_PROMPT_CHARS           — trim older context to stay under this size
 # OLLAMA_MODEL               — must match `ollama list` (e.g. qwen3.5:4b)
 # OLLAMA_URL                 — e.g. http://localhost:11434
