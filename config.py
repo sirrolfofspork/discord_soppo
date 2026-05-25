@@ -23,6 +23,7 @@ class Config:
     lmstudio_base_url: str
     lmstudio_api_key: str
     lmstudio_model: str
+    discord_allowed_channel_ids: tuple[int, ...]
     discord_channel_name: str
     spontaneous_reply_chance: float
     reply_cooldown_seconds: float
@@ -82,6 +83,25 @@ def _parse_bot_name_aliases(raw: str | None) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _parse_channel_ids(raw: str | None) -> tuple[int, ...]:
+    """Comma-separated Discord channel IDs. Empty/unset means use name fallback."""
+    if raw is None or not str(raw).strip():
+        return ()
+
+    out: list[int] = []
+    for part in str(raw).split(","):
+        s = part.strip()
+        if not s:
+            continue
+        if not s.isdecimal():
+            raise ValueError(
+                "DISCORD_ALLOWED_CHANNEL_IDS must be a comma-separated list of numeric "
+                f"Discord channel IDs (got {s!r})."
+            )
+        out.append(int(s))
+    return tuple(out)
+
+
 def load_config() -> Config:
     """
     Read configuration from the environment.
@@ -128,6 +148,7 @@ def load_config() -> Config:
                 "Set it in .env (see .env.example)."
             )
 
+    allowed_channel_ids = _parse_channel_ids(os.getenv("DISCORD_ALLOWED_CHANNEL_IDS"))
     channel_name = os.getenv("DISCORD_CHANNEL_NAME", "general").strip()
 
     chance = _float_env("SPONTANEOUS_REPLY_CHANCE", 0.10)
@@ -184,6 +205,7 @@ def load_config() -> Config:
         lmstudio_base_url=lmstudio_base_url,
         lmstudio_api_key=lmstudio_api_key,
         lmstudio_model=lmstudio_model,
+        discord_allowed_channel_ids=allowed_channel_ids,
         discord_channel_name=channel_name,
         spontaneous_reply_chance=chance,
         reply_cooldown_seconds=cooldown,
@@ -210,7 +232,8 @@ def load_config() -> Config:
 # LMSTUDIO_BASE_URL          — e.g. http://localhost:1234/v1
 # LMSTUDIO_MODEL             — model name loaded in LM Studio
 # LMSTUDIO_API_KEY           — placeholder key for local OpenAI-compatible API (default not-needed)
-# DISCORD_CHANNEL_NAME       — only this channel name (case-insensitive) is monitored
+# DISCORD_ALLOWED_CHANNEL_IDS — comma-separated channel IDs; when set, takes priority over name
+# DISCORD_CHANNEL_NAME       — fallback: only this channel name (case-insensitive) is monitored
 # SPONTANEOUS_REPLY_CHANCE   — 0.0–1.0, default 0.10
 # REPLY_COOLDOWN_SECONDS     — seconds between spontaneous replies after any reply
 # MAX_CONTEXT_MESSAGES       — rolling deque size per channel

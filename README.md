@@ -5,7 +5,7 @@ A small **local Discord chatbot** that role-plays as a video game character. It 
 ## Features
 
 - **Secure token**: `DISCORD_BOT_TOKEN` from environment (via `.env` + `python-dotenv`).
-- **Channel filter**: Only channels whose name matches `DISCORD_CHANNEL_NAME` (default `general`), case-insensitive.
+- **Channel filter**: Prefer exact channel IDs via `DISCORD_ALLOWED_CHANNEL_IDS`; if unset, fall back to channel name via `DISCORD_CHANNEL_NAME` (default `general`), case-insensitive.
 - **Ignores bots** and its own messages.
 - **Rolling memory**: Last N messages per channel (`MAX_CONTEXT_MESSAGES`), with a **character cap** (`MAX_PROMPT_CHARS`).
 - **When it replies**:
@@ -65,7 +65,19 @@ Edit **`.env`**:
 - Set **`DISCORD_BOT_TOKEN`** to your bot token.
 - Set **`LLM_BACKEND`** to `ollama`, `lmstudio`, or `openai`.
 - Adjust backend settings such as **`OLLAMA_MODEL`** / **`OLLAMA_URL`**, **`LMSTUDIO_BASE_URL`** / **`LMSTUDIO_MODEL`**, or **`OPENAI_API_KEY`** / **`OPENAI_MODEL`** as needed.
-- Adjust **`DISCORD_CHANNEL_NAME`**, **`SPONTANEOUS_REPLY_CHANCE`**, **`REPLY_COOLDOWN_SECONDS`**, **`MAX_CONTEXT_MESSAGES`**, **`MAX_PROMPT_CHARS`** if needed.
+- Adjust **`DISCORD_ALLOWED_CHANNEL_IDS`** for exact per-server channel gating, or leave it empty and use **`DISCORD_CHANNEL_NAME`** as the legacy fallback. Adjust **`SPONTANEOUS_REPLY_CHANCE`**, **`REPLY_COOLDOWN_SECONDS`**, **`MAX_CONTEXT_MESSAGES`**, **`MAX_PROMPT_CHARS`** if needed.
+
+Channel filtering priority:
+
+```env
+# Exact channels, safest for multi-server deployments; takes priority when non-empty.
+DISCORD_ALLOWED_CHANNEL_IDS=123456789012345678,234567890123456789
+
+# Fallback only when DISCORD_ALLOWED_CHANNEL_IDS is empty.
+DISCORD_CHANNEL_NAME=general
+```
+
+Use channel IDs when the bot is in more than one server. That prevents SOPPO from answering in every server that happens to have a `#general`, because of course every server does. Discord is imaginative like that.
 
 ### 5. Discord bot settings
 
@@ -122,7 +134,7 @@ On startup you should see logs similar to:
 
 - Bot **username** and id
 - **Guilds** connected
-- Monitored **channel name**
+- Allowed **channel IDs**, or monitored **channel name** fallback
 - **Spontaneous reply chance** and **cooldown**
 
 ## Project layout
@@ -151,14 +163,15 @@ On startup you should see logs similar to:
 | Ollama model name | `.env` → `OLLAMA_MODEL` |
 | LM Studio endpoint/model | `.env` → `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL` |
 | OpenAI model | `.env` → `OPENAI_MODEL` |
-| Channel name filter | `.env` → `DISCORD_CHANNEL_NAME` |
+| Exact channel ID filter | `.env` → `DISCORD_ALLOWED_CHANNEL_IDS` |
+| Channel name fallback | `.env` → `DISCORD_CHANNEL_NAME` |
 | Character voice / rules | `prompts.py` → `build_system_prompt()` |
 | Force reply command | Message containing **`!soppo`** (see `bot.py` → `message_has_trigger`) |
 
 ## Extending later
 
 - **Slash commands**: add a `discord.app_commands.CommandTree` in `setup_hook` and sync to a guild or globally.
-- **Per-channel behavior**: branch on `message.channel.id` or store settings in a dict / small DB.
+- **Per-channel behavior**: extend the existing `DISCORD_ALLOWED_CHANNEL_IDS` gate into per-channel settings or store settings in a dict / small DB.
 - **Stronger “no repeat”**: adjust the `last_bot_reply` block in `prompts.py` or add similarity checks before send.
 
 ## Troubleshooting
@@ -167,7 +180,7 @@ On startup you should see logs similar to:
 |---------|----------------|
 | `Missing or empty environment variable: DISCORD_BOT_TOKEN` | No `.env` or token not set; fix `.env` next to `main.py`. |
 | Bot online but never reads text | **Message Content Intent** not enabled in the portal, or bot lacks **View Channel** / **Read Message History** in `#general`. |
-| Bot ignores all messages | Channel is not named like `DISCORD_CHANNEL_NAME` (default `general`), or messages are in a thread / wrong server. |
+| Bot ignores all messages | If `DISCORD_ALLOWED_CHANNEL_IDS` is set, the current channel ID is not in that list. If it is empty, the channel is not named like `DISCORD_CHANNEL_NAME` (default `general`), or messages are in a thread / wrong server. |
 | `Could not reach Ollama` | Ollama not running, wrong `OLLAMA_URL`, or firewall blocking `localhost:11434`. |
 | Could not reach LM Studio / connection failed | LM Studio local server is not running, wrong `LMSTUDIO_BASE_URL`, or no model is loaded. |
 | `model '…' not found` / HTTP 404 | That tag is not installed. Run `ollama pull <OLLAMA_MODEL>` or set `OLLAMA_MODEL` to a name from `ollama list`. |

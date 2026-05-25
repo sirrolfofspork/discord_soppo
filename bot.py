@@ -81,6 +81,24 @@ def channel_name_matches(channel: discord.abc.GuildChannel, expected: str) -> bo
     return channel.name.lower() == expected.lower()
 
 
+def channel_is_allowed(
+    *,
+    channel_id: int,
+    channel_name: str,
+    allowed_channel_ids: tuple[int, ...],
+    fallback_channel_name: str,
+) -> bool:
+    """
+    True if a message's channel should be processed.
+
+    Explicit Discord channel IDs take priority when configured. If no IDs are
+    configured, fall back to the legacy case-insensitive channel-name filter.
+    """
+    if allowed_channel_ids:
+        return channel_id in allowed_channel_ids
+    return channel_name.lower() == fallback_channel_name.lower()
+
+
 def message_has_trigger(content: str) -> bool:
     """True if the user used the `!soppo` trigger as its own word/token."""
     if not content:
@@ -497,7 +515,14 @@ class SoppoBot(discord.Client):
 
         guild_names = [g.name for g in self.guilds]
         logger.info("Connected to %d guild(s): %s", len(guild_names), guild_names or "(none)")
-        logger.info("Monitored channel name: #%s (case-insensitive)", self.config.discord_channel_name)
+        if self.config.discord_allowed_channel_ids:
+            logger.info(
+                "Allowed channel IDs: %s (DISCORD_CHANNEL_NAME fallback disabled)",
+                ", ".join(str(ch_id) for ch_id in self.config.discord_allowed_channel_ids),
+            )
+        else:
+            logger.info("Allowed channel IDs: (none — using channel-name fallback)")
+            logger.info("Monitored channel name: #%s (case-insensitive)", self.config.discord_channel_name)
         if self.config.llm_backend == "openai":
             logger.info("LLM backend: openai (model=%s)", self.config.openai_model)
         elif self.config.llm_backend == "lmstudio":
@@ -543,7 +568,12 @@ class SoppoBot(discord.Client):
             return
         if not isinstance(message.channel, discord.TextChannel):
             return
-        if not channel_name_matches(message.channel, self.config.discord_channel_name):
+        if not channel_is_allowed(
+            channel_id=message.channel.id,
+            channel_name=message.channel.name,
+            allowed_channel_ids=self.config.discord_allowed_channel_ids,
+            fallback_channel_name=self.config.discord_channel_name,
+        ):
             return
 
         bot_user = self.user
