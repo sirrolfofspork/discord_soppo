@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 # Cap how many entries we inject per message (keeps prompts small).
-MAX_LORE_MATCHES = 4
+MAX_LORE_MATCHES = 3
 
 _DEFAULT_STORE_PATH = Path(__file__).resolve().parent / "lore_store.json"
 

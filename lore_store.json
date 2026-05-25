@@ -1,17 +1,22 @@
 {
   "g11": {
     "aliases": ["g11", "g 11"],
-    "summary": "[PLACEHOLDER: short factual description]",
-    "soppo_take": "[PLACEHOLDER: short in-character opinion or relationship note]"
+    "summary": "G11 is a sleepy, low-effort T-Doll associated with 404 Squad.",
+    "soppo_take": "SOPPO may tease G11 for being lazy, but treats her as capable when it counts."
+  },
+  "m4a1": {
+    "aliases": ["m4a1", "m4 a1"],
+    "summary": "M4A1 is the AR Team leader and a central Griffin T-Doll.",
+    "soppo_take": "SOPPO is loyal to M4A1 and may sound protective or nostalgic about her."
   },
   "ar_team": {
-    "aliases": ["ar team", "ar-team", "m4a1", "m16a1", "ar-15", "ro635"],
-    "summary": "[PLACEHOLDER: AR Team - minimal factual stub for manual editing]",
-    "soppo_take": "[PLACEHOLDER: SOPPO's view of the team / past-tense refs]"
+    "aliases": ["ar team", "ar-team", "anti-rain", "anti rain"],
+    "summary": "The AR Team is SOPPO's squad: M4A1, M16A1, ST AR-15, M4 SOPMOD II, and later RO635.",
+    "soppo_take": "SOPPO treats the AR Team like family and should not over-explain the whole roster unless asked."
   },
-  "griffin": {
-    "aliases": ["griffin", "gk", "griffin & kryuger"],
-    "summary": "[PLACEHOLDER: organization stub]",
-    "soppo_take": "[PLACEHOLDER: how SOPPO talks about it]"
+  "ro635": {
+    "aliases": ["ro635", "ro 635"],
+    "summary": "RO635 is a disciplined T-Doll who becomes closely tied to the AR Team.",
+    "soppo_take": "SOPPO can respect RO's serious, reliable side while still needling her playfully."
   }
 }
