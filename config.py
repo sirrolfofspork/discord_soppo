@@ -25,6 +25,8 @@ class Config:
     lmstudio_model: str
     discord_allowed_channel_ids: tuple[int, ...]
     discord_channel_name: str
+    respond_to_other_bots: bool
+    bot_author_cooldown_seconds: float
     spontaneous_reply_chance: float
     reply_cooldown_seconds: float
     max_context_messages: int
@@ -73,6 +75,18 @@ def _int_env(name: str, default: int) -> int:
     if raw is None or not str(raw).strip():
         return default
     return int(str(raw).strip())
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    value = str(raw).strip().lower()
+    if value in ("1", "true", "yes", "on"):
+        return True
+    if value in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"{name} must be true or false (got {raw!r}).")
 
 
 def _parse_bot_name_aliases(raw: str | None) -> tuple[str, ...]:
@@ -155,6 +169,11 @@ def load_config() -> Config:
     allowed_channel_ids = _parse_channel_ids(os.getenv("DISCORD_ALLOWED_CHANNEL_IDS"))
     channel_name = os.getenv("DISCORD_CHANNEL_NAME", "general").strip()
 
+    respond_to_other_bots = _bool_env("RESPOND_TO_OTHER_BOTS", False)
+    bot_author_cooldown = _float_env("BOT_AUTHOR_COOLDOWN_SECONDS", 60.0)
+    if bot_author_cooldown < 0:
+        bot_author_cooldown = 0.0
+
     chance = _float_env("SPONTANEOUS_REPLY_CHANCE", 0.10)
     chance = max(0.0, min(1.0, chance))
 
@@ -222,6 +241,8 @@ def load_config() -> Config:
         lmstudio_model=lmstudio_model,
         discord_allowed_channel_ids=allowed_channel_ids,
         discord_channel_name=channel_name,
+        respond_to_other_bots=respond_to_other_bots,
+        bot_author_cooldown_seconds=bot_author_cooldown,
         spontaneous_reply_chance=chance,
         reply_cooldown_seconds=cooldown,
         max_context_messages=max_ctx,
@@ -253,6 +274,8 @@ def load_config() -> Config:
 # LMSTUDIO_API_KEY           — placeholder key for local OpenAI-compatible API (default not-needed)
 # DISCORD_ALLOWED_CHANNEL_IDS — comma-separated channel IDs; when set, takes priority over name
 # DISCORD_CHANNEL_NAME       — fallback: only this channel name (case-insensitive) is monitored
+# RESPOND_TO_OTHER_BOTS      — true/false; default false. Self messages are always ignored
+# BOT_AUTHOR_COOLDOWN_SECONDS — per-other-bot-author cooldown after SOPPO replies to that bot
 # SPONTANEOUS_REPLY_CHANCE   — 0.0–1.0, default 0.10
 # REPLY_COOLDOWN_SECONDS     — seconds between spontaneous replies after any reply
 # MAX_CONTEXT_MESSAGES       — rolling deque size per channel

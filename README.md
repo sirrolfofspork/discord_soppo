@@ -6,7 +6,7 @@ A small **local Discord chatbot** that role-plays as a video game character. It 
 
 - **Secure token**: `DISCORD_BOT_TOKEN` from environment (via `.env` + `python-dotenv`).
 - **Channel filter**: Prefer exact channel IDs via `DISCORD_ALLOWED_CHANNEL_IDS`; if unset, fall back to channel name via `DISCORD_CHANNEL_NAME` (default `general`), case-insensitive.
-- **Ignores bots** and its own messages.
+- **Ignores bots by default** and always ignores its own messages. Optional controlled bot-to-bot replies can be enabled with `RESPOND_TO_OTHER_BOTS=true` plus `BOT_AUTHOR_COOLDOWN_SECONDS` loop protection.
 - **Rolling memory**: Recent unsummarized messages per channel (`MAX_CONTEXT_MESSAGES`) plus compact per-channel summaries when history exceeds `MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY`, with a **character cap** (`MAX_PROMPT_CHARS`).
 - **When it replies**:
   - **Always** when @mentioned, when replying to the bot’s message, or when someone uses **`!soppo`**.
@@ -79,6 +79,18 @@ DISCORD_CHANNEL_NAME=general
 
 Use channel IDs when the bot is in more than one server. That prevents SOPPO from answering in every server that happens to have a `#general`, because of course every server does. Discord is imaginative like that.
 
+Bot-author filtering:
+
+```env
+# Default: ignore other Discord bots. SOPPO always ignores herself either way.
+RESPOND_TO_OTHER_BOTS=false
+
+# Only applies after SOPPO replies to another bot author; humans are unaffected.
+BOT_AUTHOR_COOLDOWN_SECONDS=60
+```
+
+Set `RESPOND_TO_OTHER_BOTS=true` only for controlled channels or bridge/testing setups. Other bot messages still have to pass the normal channel filter and trigger logic.
+
 ### 5. Discord bot settings
 
 In the Developer Portal, under **Bot**:
@@ -136,6 +148,7 @@ On startup you should see logs similar to:
 - **Guilds** connected
 - Allowed **channel IDs**, or monitored **channel name** fallback
 - **Spontaneous reply chance** and **cooldown**
+- Other-bot response mode and per-bot-author cooldown
 - Channel summary memory threshold, batch size, and summary character cap
 
 ## Project layout
@@ -160,6 +173,8 @@ On startup you should see logs similar to:
 |------|--------|
 | Spontaneous reply chance | `.env` → `SPONTANEOUS_REPLY_CHANCE` |
 | Cooldown after any reply | `.env` → `REPLY_COOLDOWN_SECONDS` |
+| Respond to other Discord bots | `.env` → `RESPOND_TO_OTHER_BOTS` |
+| Other-bot loop cooldown | `.env` → `BOT_AUTHOR_COOLDOWN_SECONDS` |
 | Max unsummarized messages in memory | `.env` → `MAX_CONTEXT_MESSAGES` |
 | Summary rollover threshold | `.env` → `MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY` |
 | Summary batch size | `.env` → `SUMMARY_BATCH_SIZE` |
@@ -188,6 +203,7 @@ On startup you should see logs similar to:
 | `Missing or empty environment variable: DISCORD_BOT_TOKEN` | No `.env` or token not set; fix `.env` next to `main.py`. |
 | Bot online but never reads text | **Message Content Intent** not enabled in the portal, or bot lacks **View Channel** / **Read Message History** in `#general`. |
 | Bot ignores all messages | If `DISCORD_ALLOWED_CHANNEL_IDS` is set, the current channel ID is not in that list. If it is empty, the channel is not named like `DISCORD_CHANNEL_NAME` (default `general`), or messages are in a thread / wrong server. |
+| Bot ignores another bot | `RESPOND_TO_OTHER_BOTS` defaults to `false`; set it to `true` only when you want other bots to pass normal channel and trigger checks. If enabled, `BOT_AUTHOR_COOLDOWN_SECONDS` may still suppress rapid loops from the same bot author. |
 | `Could not reach Ollama` | Ollama not running, wrong `OLLAMA_URL`, or firewall blocking `localhost:11434`. |
 | Could not reach LM Studio / connection failed | LM Studio local server is not running, wrong `LMSTUDIO_BASE_URL`, or no model is loaded. |
 | `model '…' not found` / HTTP 404 | That tag is not installed. Run `ollama pull <OLLAMA_MODEL>` or set `OLLAMA_MODEL` to a name from `ollama list`. |
