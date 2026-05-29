@@ -31,6 +31,7 @@ wheels/
 .installed.cfg
 *.egg
 memory_store.json
+user_profiles.json
 
 # IDE / OS
 .idea/

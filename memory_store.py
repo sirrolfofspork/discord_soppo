@@ -2,8 +2,8 @@
 LangGraph-style JSON memory store for SOPPO.
 
 This is a small compatibility seam for future migration: records are addressed by
-(namespace tuple, key) and stored as flat JSON paths. It is not wired into the bot
-runtime yet.
+(namespace tuple, key) and stored as flat JSON paths. The bot runtime uses this
+store for channel summaries and structured long-term memory records.
 """
 
 from __future__ import annotations
