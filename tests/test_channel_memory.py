@@ -118,6 +118,7 @@ class PromptAssemblyOrderingTests(unittest.TestCase):
             system_prompt="SYSTEM",
             speaker_context="SPEAKER",
             channel_summary_block="SUMMARY",
+            structured_memory_block="STRUCTURED",
             lore_block="LORE",
             returning_hint="FOLLOWUP",
             history=[
@@ -128,7 +129,7 @@ class PromptAssemblyOrderingTests(unittest.TestCase):
 
         self.assertEqual(
             [m["content"] for m in messages],
-            ["SYSTEM", "SPEAKER", "SUMMARY", "LORE", "FOLLOWUP", "old recent", "current message"],
+            ["SYSTEM", "SPEAKER", "SUMMARY", "STRUCTURED", "LORE", "FOLLOWUP", "old recent", "current message"],
         )
         self.assertEqual([m["role"] for m in messages[:5]], ["system"] * 5)
 
