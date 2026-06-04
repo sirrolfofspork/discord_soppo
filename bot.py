@@ -38,6 +38,7 @@ from memory_extractor import (
     collect_relevant_structured_memories,
     extract_structured_memories,
     global_memories_namespace,
+    guild_memories_namespace,
     user_memories_namespace,
 )
 from memory_store import save_memory_store
@@ -292,6 +293,22 @@ def scrub_discord_mass_pings(text: str) -> str:
     return t
 
 
+_LEADING_SPEAKER_LABEL = re.compile(
+    r"^\s*(?:[*_`]+\s*)?(?:SOPPO|Soppo|M4\s+SOPMOD\s+II)\s*:\s*(?:[*_`]+\s*)?",
+    re.IGNORECASE,
+)
+
+
+def sanitize_llm_reply_for_discord(text: str) -> str:
+    """Remove repeated leading assistant speaker labels before Discord send."""
+    cleaned = str(text or "").strip()
+    previous = None
+    while cleaned and cleaned != previous:
+        previous = cleaned
+        cleaned = _LEADING_SPEAKER_LABEL.sub("", cleaned).strip()
+    return cleaned
+
+
 def apply_soft_reply_limit(text: str, soft_limit: int) -> str:
     """
     If text is longer than `soft_limit`, trim preferring the last sentence end,
@@ -449,6 +466,8 @@ class SoppoBot(discord.Client):
         self._last_channel_greet_mono: dict[int, float] = {}
         # channel_id -> user_id -> expires_at (time.time); sliding window after SOPPO-directed messages
         self._inferred_followup_expires_at: dict[int, dict[int, float]] = {}
+        # Keep slow hosted calls from piling up multiple generations at once.
+        self._generation_lock = asyncio.Lock()
 
     def _history_for(self, channel_id: int) -> deque[dict[str, Any]]:
         if channel_id not in self._history:
@@ -502,6 +521,8 @@ class SoppoBot(discord.Client):
             user_id = memory.get("user_id")
             if scope == "user" and isinstance(user_id, int):
                 namespace = user_memories_namespace(user_id)
+            elif scope == "guild":
+                namespace = guild_memories_namespace(guild_id)
             elif scope == "global":
                 namespace = global_memories_namespace()
             else:
@@ -838,21 +859,46 @@ class SoppoBot(discord.Client):
                 self.config.max_prompt_chars,
             )
 
+            prompt_char_count = sum(
+                len(m.get("content", "")) for m in llm_messages if isinstance(m.get("content"), str)
+            )
+            logger.info(
+                "LLM request prepared (%s): backend=%s messages=%d prompt_chars=%d",
+                reason,
+                self.config.llm_backend,
+                len(llm_messages),
+                prompt_char_count,
+            )
+
             try:
-                reply_text = await generate_reply(
-                    backend=cast(LLMBackend, self.config.llm_backend),
-                    messages=llm_messages,
-                    temperature=self.config.temperature,
-                    top_p=self.config.top_p,
-                    max_tokens=self.config.max_tokens,
-                    ollama_url=self.config.ollama_url,
-                    ollama_model=self.config.ollama_model,
-                    openai_api_key=self.config.openai_api_key,
-                    openai_model=self.config.openai_model,
-                    lmstudio_base_url=self.config.lmstudio_base_url,
-                    lmstudio_api_key=self.config.lmstudio_api_key,
-                    lmstudio_model=self.config.lmstudio_model,
-                )
+                async def _generate_current_reply() -> str:
+                    return await generate_reply(
+                        backend=cast(LLMBackend, self.config.llm_backend),
+                        messages=llm_messages,
+                        temperature=self.config.temperature,
+                        top_p=self.config.top_p,
+                        max_tokens=self.config.max_tokens,
+                        ollama_url=self.config.ollama_url,
+                        ollama_model=self.config.ollama_model,
+                        openai_api_key=self.config.openai_api_key,
+                        openai_model=self.config.openai_model,
+                        lmstudio_base_url=self.config.lmstudio_base_url,
+                        lmstudio_api_key=self.config.lmstudio_api_key,
+                        lmstudio_model=self.config.lmstudio_model,
+                        timeout_seconds=(
+                            self.config.openai_timeout_seconds
+                            if self.config.llm_backend == "openai"
+                            else 90.0
+                        ),
+                    )
+
+                if self.config.llm_backend == "openai":
+                    if self._generation_lock.locked():
+                        logger.warning("OpenAI generation already in progress; waiting before starting another request (%s)", reason)
+                    async with self._generation_lock:
+                        reply_text = await _generate_current_reply()
+                else:
+                    reply_text = await _generate_current_reply()
             except OllamaError as e:
                 if str(e) == "Ollama returned empty content":
                     logger.error(
@@ -875,6 +921,11 @@ class SoppoBot(discord.Client):
 
             if not reply_text:
                 logger.warning("Empty reply from LLM; skipping send (%s)", reason)
+                return
+
+            reply_text = sanitize_llm_reply_for_discord(reply_text)
+            if not reply_text:
+                logger.warning("Reply empty after output sanitizing; skipping send (%s)", reason)
                 return
 
             reply_text = scrub_discord_mass_pings(reply_text)

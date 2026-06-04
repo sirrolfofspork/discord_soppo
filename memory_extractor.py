@@ -38,7 +38,7 @@ class ExtractedMemory(TypedDict):
     type: MemoryType
     text: str
     importance: float
-    scope: Literal["channel", "user", "global"]
+    scope: Literal["channel", "guild", "user", "global"]
     user_id: NotRequired[int]
 
 
@@ -46,6 +46,12 @@ def channel_memories_namespace(*, guild_id: int | None, channel_id: int) -> Name
     if guild_id is None:
         return ("discord", "dm", "channel", str(channel_id), "memories")
     return ("discord", "guild", str(guild_id), "channel", str(channel_id), "memories")
+
+
+def guild_memories_namespace(guild_id: int | None) -> Namespace:
+    if guild_id is None:
+        return ("discord", "dm", "memories")
+    return ("discord", "guild", str(guild_id), "memories")
 
 
 def user_memories_namespace(user_id: int) -> Namespace:
@@ -86,7 +92,14 @@ def _parse_user_turn(turn: dict[str, Any]) -> tuple[str, int | None, str] | None
     return display, user_id, message
 
 
-def _memory(memory_type: MemoryType, text: str, scope: Literal["channel", "user", "global"], *, importance: float, user_id: int | None = None) -> ExtractedMemory:
+def _memory(
+    memory_type: MemoryType,
+    text: str,
+    scope: Literal["channel", "guild", "user", "global"],
+    *,
+    importance: float,
+    user_id: int | None = None,
+) -> ExtractedMemory:
     record: ExtractedMemory = {
         "type": memory_type,
         "text": _clean_sentence(text),
@@ -117,7 +130,7 @@ def extract_structured_memories(turns: Iterable[dict[str, Any]], *, limit: int =
         if m:
             preference = _clean_sentence(m.group(1))
             if preference:
-                scope: Literal["channel", "user", "global"] = "user" if user_id is not None else "channel"
+                scope: Literal["channel", "guild", "user", "global"] = "user" if user_id is not None else "channel"
                 memories.append(
                     _memory(
                         "user_preference",
@@ -141,7 +154,7 @@ def extract_structured_memories(turns: Iterable[dict[str, Any]], *, limit: int =
         if m:
             subject = "The server"
             memories.append(
-                _memory("server_fact", f"{subject} {m.group(2).lower()} {m.group(3)}", "channel", importance=0.65)
+                _memory("server_fact", f"{subject} {m.group(2).lower()} {m.group(3)}", "guild", importance=0.65)
             )
             continue
 
@@ -309,6 +322,7 @@ def collect_relevant_structured_memories(
 ) -> list[dict[str, Any]]:
     namespaces = [
         user_memories_namespace(user_id),
+        guild_memories_namespace(guild_id),
         channel_memories_namespace(guild_id=guild_id, channel_id=channel_id),
         global_memories_namespace(),
     ]

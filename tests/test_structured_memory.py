@@ -37,6 +37,18 @@ class StructuredMemoryExtractionTests(unittest.TestCase):
         self.assertEqual(memories[0]["text"], "We are using LM Studio for local inference")
         self.assertEqual(memories[0]["scope"], "channel")
 
+    def test_extracting_server_fact_uses_guild_scope(self):
+        from memory_extractor import extract_structured_memories
+
+        turns = [{"role": "user", "content": "[SKK|717]: This server uses bot-lab for SOPPO testing."}]
+
+        memories = extract_structured_memories(turns)
+
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0]["type"], "server_fact")
+        self.assertEqual(memories[0]["text"], "The server uses bot-lab for SOPPO testing")
+        self.assertEqual(memories[0]["scope"], "guild")
+
 
 class StructuredMemoryStoreTests(unittest.TestCase):
     def test_deduping_similar_memory_updates_existing_record(self):

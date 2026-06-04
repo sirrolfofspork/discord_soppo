@@ -20,6 +20,7 @@ class Config:
     ollama_url: str
     openai_api_key: str
     openai_model: str
+    openai_timeout_seconds: float
     lmstudio_base_url: str
     lmstudio_api_key: str
     lmstudio_model: str
@@ -142,6 +143,8 @@ def load_config() -> Config:
     openai_model = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
     openai_key_raw = os.getenv("OPENAI_API_KEY")
     openai_api_key = str(openai_key_raw).strip() if openai_key_raw else ""
+    openai_timeout_seconds = _float_env("OPENAI_TIMEOUT_SECONDS", 120.0)
+    openai_timeout_seconds = max(15.0, min(600.0, openai_timeout_seconds))
 
     lmstudio_base_url = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1").strip().rstrip("/")
     lmstudio_model = os.getenv("LMSTUDIO_MODEL", "local-model").strip()
@@ -236,6 +239,7 @@ def load_config() -> Config:
         ollama_url=ollama_url,
         openai_api_key=openai_api_key,
         openai_model=openai_model,
+        openai_timeout_seconds=openai_timeout_seconds,
         lmstudio_base_url=lmstudio_base_url,
         lmstudio_api_key=lmstudio_api_key,
         lmstudio_model=lmstudio_model,
@@ -269,6 +273,7 @@ def load_config() -> Config:
 # LLM_BACKEND                — ollama | openai | lmstudio
 # OPENAI_API_KEY             — required if LLM_BACKEND=openai
 # OPENAI_MODEL               — e.g. gpt-5.4-mini
+# OPENAI_TIMEOUT_SECONDS     — request timeout for OpenAI backend (default 120, clamped 15–600)
 # LMSTUDIO_BASE_URL          — e.g. http://localhost:1234/v1
 # LMSTUDIO_MODEL             — model name loaded in LM Studio
 # LMSTUDIO_API_KEY           — placeholder key for local OpenAI-compatible API (default not-needed)
