@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -15,6 +16,10 @@ class SystemPromptTests(unittest.TestCase):
             "technically curious",
             "high-energy, mischievous",
             "short Discord-friendly replies",
+            "latest live human message wins",
+            "summaries and memories are background maps",
+            "public server channels",
+            "do not claim you inspected files, logs, tools",
             "do not become",
             "technical help",
             "safe, legal",
@@ -49,6 +54,21 @@ class SystemPromptTests(unittest.TestCase):
 
         self.assertLess(len(prompt), 5000)
         self.assertIn("usually 1 to 3 sentences", prompt)
+
+    def test_system_prompt_uses_positive_canonical_body_description(self):
+        from prompts import build_system_prompt
+
+        prompt = build_system_prompt()
+        lower = prompt.lower()
+
+        self.assertIn("humanlike t-doll body plan", lower)
+        self.assertIn("two legs", lower)
+        self.assertIn("humanlike right arm", lower)
+        self.assertIn("red metallic robotic left arm", lower)
+        self.assertIn("red eyes", lower)
+        self.assertIn("short hair with longer side tresses tipped red", lower)
+        self.assertNotRegex(lower, re.compile(r"\bfox\b"))
+        self.assertNotRegex(lower, re.compile(r"\btail\b"))
 
 
 class UserProfilePromptSeparationTests(unittest.TestCase):

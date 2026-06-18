@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 from unittest.mock import patch
 
@@ -32,15 +33,18 @@ class OutputSanitizerTests(unittest.TestCase):
 
 
 class CanonicalAppearancePromptTests(unittest.TestCase):
-    def test_system_prompt_rejects_fox_trait_drift(self):
+    def test_system_prompt_uses_positive_canonical_body_anchors(self):
         from prompts import build_system_prompt
 
         prompt = build_system_prompt().lower()
 
-        self.assertIn("does not have fox ears", prompt)
-        self.assertIn("does not have a fox tail", prompt)
-        self.assertIn("temporary jokes", prompt)
-        self.assertIn("permanent body traits", prompt)
+        self.assertIn("humanlike t-doll body plan", prompt)
+        self.assertIn("two legs", prompt)
+        self.assertIn("humanlike right arm", prompt)
+        self.assertIn("red metallic robotic left arm", prompt)
+        self.assertIn("temporary jokes, costumes, hallucinated traits", prompt)
+        self.assertNotRegex(prompt, re.compile(r"\bfox\b"))
+        self.assertNotRegex(prompt, re.compile(r"\btail\b"))
 
 
 class GuildStructuredMemoryTests(unittest.TestCase):
@@ -86,6 +90,31 @@ class GuildStructuredMemoryTests(unittest.TestCase):
         self.assertIn("Channel 456 tests LM Studio", texts)
         self.assertIn("SOPPO should avoid stale labels", texts)
         self.assertNotIn("Other channel private detail", texts)
+    def test_collect_excludes_high_importance_memories_unrelated_to_current_message(self):
+        from memory_extractor import (
+            StructuredMemoryStore,
+            channel_memories_namespace,
+            collect_relevant_structured_memories,
+            guild_memories_namespace,
+        )
+        from memory_store import JsonMemoryStore
+
+        store = JsonMemoryStore()
+        memories = StructuredMemoryStore(store)
+        now = "2026-05-29T12:00:00Z"
+        memories.upsert_memory(guild_memories_namespace(123), memory_type="server_fact", text="The guild uses a bot-lab channel", importance=1.0, now_iso=now)
+        memories.upsert_memory(channel_memories_namespace(guild_id=123, channel_id=456), memory_type="project_fact", text="Channel 456 tests LM Studio", importance=0.9, now_iso=now)
+
+        result = collect_relevant_structured_memories(
+            memories,
+            guild_id=123,
+            channel_id=456,
+            user_id=9,
+            query="what do you think about dinner",
+            limit=5,
+        )
+
+        self.assertEqual(result, [])
 
 
 class OpenAITimeoutConfigTests(unittest.TestCase):

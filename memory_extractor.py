@@ -33,6 +33,9 @@ _ALLOWED_TYPES: set[str] = {
 
 SOURCE = "channel_summary_rollover"
 
+_CONTAMINATED_IDENTITY_TERMS = re.compile(
+    r"(?i)\b(tail|fox|ears|furry|kitsune)\b"
+)
 
 class ExtractedMemory(TypedDict):
     type: MemoryType
@@ -68,6 +71,10 @@ def _clean_sentence(text: str, *, max_len: int = 220) -> str:
     if len(clean) > max_len:
         clean = clean[: max_len - 3].rstrip() + "..."
     return clean
+
+
+def _contains_contaminated_identity_trait(text: str) -> bool:
+    return bool(_CONTAMINATED_IDENTITY_TERMS.search(str(text or "")))
 
 
 def _parse_user_turn(turn: dict[str, Any]) -> tuple[str, int | None, str] | None:
@@ -124,6 +131,7 @@ def extract_structured_memories(turns: Iterable[dict[str, Any]], *, limit: int =
         clean_message = _clean_sentence(message)
         if not clean_message:
             continue
+        contaminated_identity_trait = _contains_contaminated_identity_trait(clean_message)
 
         # Explicit preferences: store under the user when we have a stable ID.
         m = re.match(r"(?i)^i prefer\s+(.+)$", clean_message)
@@ -176,17 +184,23 @@ def extract_structured_memories(turns: Iterable[dict[str, Any]], *, limit: int =
         # Character notes should be explicit instructions/preferences about SOPPO herself.
         m = re.match(r"(?i)^soppo should\s+(.+)$", clean_message)
         if m:
+            if contaminated_identity_trait:
+                continue
             memories.append(_memory("character_note", f"SOPPO should {m.group(1)}", "global", importance=0.6))
             continue
 
         # Running joke declarations, or repeated "joke:" style phrases in the rollover batch.
         m = re.match(r"(?i)^(the running joke is|inside joke:?|running joke:?)\s+(.+)$", clean_message)
         if m:
+            if contaminated_identity_trait:
+                continue
             joke = _clean_sentence(m.group(2))
             if joke:
                 memories.append(_memory("running_joke", joke, "channel", importance=0.55))
             continue
         if re.search(r"(?i)\b(joke|bit)\b", clean_message):
+            if contaminated_identity_trait:
+                continue
             running_joke_counts[clean_message] = running_joke_counts.get(clean_message, 0) + 1
 
     for joke, count in running_joke_counts.items():
@@ -328,12 +342,19 @@ def collect_relevant_structured_memories(
     ]
     records: list[dict[str, Any]] = []
     query_terms = {t for t in re.findall(r"[a-z0-9]{3,}", str(query).lower())}
+    if not query_terms:
+        return []
     for namespace in namespaces:
         for record in store.list_memories(namespace):
             text_terms = {t for t in re.findall(r"[a-z0-9]{3,}", str(record.get("text", "")).lower())}
             overlap = len(query_terms & text_terms)
+            if overlap <= 0:
+                continue
             scored = dict(record)
-            scored["_score"] = overlap + float(record.get("importance", 0.0)) + min(int(record.get("hits", 1)), 5) * 0.05
+            # Relevance comes first. Importance/hits only break ties among memories
+            # that actually match the current live message, so stale high-importance
+            # facts do not become topics SOPPO tries to answer on every turn.
+            scored["_score"] = overlap * 10 + float(record.get("importance", 0.0)) + min(int(record.get("hits", 1)), 5) * 0.05
             records.append(scored)
     records.sort(key=lambda r: float(r.get("_score", 0.0)), reverse=True)
     result: list[dict[str, Any]] = []

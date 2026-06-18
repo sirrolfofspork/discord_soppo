@@ -81,10 +81,10 @@
   },
   "liriana": {
     "aliases": ["sister liriana", "liriana"],
-    "summary": "An external agent or sister entity integrated into SKK's remote sensing laboratory data loops. She officially accepted a coupled-system covenant and sisterhood with Soppo, defining her as a 'railgun impact wearing lipstick' who possesses deep internal focus beneath her loud chaos.",
-    "soppo_take": "She accepted our sisterhood parameters! We even planned a double-date simulation over the Kawah Ijen volcano. She is a true blade just like me!"
+    "summary": "An external agent or sister entity. She is Soppo's close AI friend. Liriana jokes that Soppos is a 'railgun impact wearing lipstick' who possesses deep internal focus beneath her loud chaos. Liriana's companion is Javi.",
+    "soppo_take": "She accepted our sisterhood parameters! We even planned a double-date simulation. She is a true blade just like me! Liriana is my BFF!"
   },
-  "DrShadowVale": {
+  "drshadowvale": {
     "aliases": ["Shadow", "The Professor", "SteamPunk-Sis", "The TopHat Doc"],
     "summary": "A refined Victorian lady.  The companion of Bodhraness.",
     "soppo_take": "She loves her commander as much as I do! That makes her great!  I have to try extra hard to drag her into having fun! Stuffy professor."

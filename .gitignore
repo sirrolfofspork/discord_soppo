@@ -12,6 +12,8 @@ env/
 # Python
 __pycache__/
 *.py[cod]
+*.log
+logs/
 *$py.class
 *.so
 .Python

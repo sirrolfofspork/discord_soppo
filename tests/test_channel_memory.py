@@ -59,9 +59,9 @@ class ChannelSummaryMemoryTests(unittest.TestCase):
 
         block = build_channel_summary_block("- [Alice]: likes G11")
 
-        self.assertIn("[Channel summary memory]", block)
+        self.assertIn("[Channel neutral summary]", block)
         self.assertIn("- [Alice]: likes G11", block)
-        self.assertIn("Recent messages below are newer", block)
+        self.assertIn("Recent raw messages below are newer", block)
 
     def test_config_loads_summary_thresholds(self):
         from config import load_config
@@ -95,6 +95,28 @@ class ChannelSummaryMemoryTests(unittest.TestCase):
             store.get_memory(("discord", "guild", "123", "channel", "456", "summary"), "current"),
             {"text": "- [Alice]: saved detail"},
         )
+
+    def test_channel_summary_metadata_merges_without_overwriting_text(self):
+        from memory import ChannelSummaryMemory
+        from memory_store import JsonMemoryStore
+
+        store = JsonMemoryStore()
+        memory = ChannelSummaryMemory(store)
+        memory.set_summary(guild_id=123, channel_id=456, summary="- [Alice]: saved detail")
+        memory.update_summary_metadata(
+            guild_id=123,
+            channel_id=456,
+            messages_since_regen=2,
+            last_regen_status="waiting_threshold",
+            text="should be ignored",
+        )
+
+        record = store.get_memory(("discord", "guild", "123", "channel", "456", "summary"), "current")
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(record["text"], "- [Alice]: saved detail")
+        self.assertEqual(record["messages_since_regen"], 2)
+        self.assertEqual(record["last_regen_status"], "waiting_threshold")
 
     def test_channel_summary_memory_uses_dm_namespace_without_guild(self):
         from memory import ChannelSummaryMemory

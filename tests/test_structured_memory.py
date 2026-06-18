@@ -49,6 +49,21 @@ class StructuredMemoryExtractionTests(unittest.TestCase):
         self.assertEqual(memories[0]["text"], "The server uses bot-lab for SOPPO testing")
         self.assertEqual(memories[0]["scope"], "guild")
 
+    def test_animal_trait_jokes_do_not_become_character_memories(self):
+        from memory_extractor import extract_structured_memories
+
+        turns = [
+            {"role": "user", "content": "[Alice|111]: running joke: SOPPO has a fox tail today"},
+            {"role": "user", "content": "[Alice|111]: SOPPO should have fox ears because it is funny"},
+        ]
+
+        memories = extract_structured_memories(turns)
+
+        joined = "\n".join(m["text"] for m in memories).lower()
+        self.assertNotIn("fox", joined)
+        self.assertNotIn("tail", joined)
+        self.assertNotIn("ears", joined)
+
 
 class StructuredMemoryStoreTests(unittest.TestCase):
     def test_deduping_similar_memory_updates_existing_record(self):

@@ -30,6 +30,8 @@ from memory import (
     PersistentChannelSummaryMemory,
     apply_summary_rollover,
     build_channel_summary_block,
+    build_neutral_summary_messages,
+    trim_neutral_summary,
 )
 from memory_extractor import (
     StructuredMemoryStore,
@@ -68,6 +70,7 @@ ResponseReason = Literal[
     "mention",
     "reply_chain",
     "trigger",
+    "dm_direct",
     "spontaneous",
     "name_alias",
     "inferred_followup",
@@ -75,7 +78,7 @@ ResponseReason = Literal[
 
 # Refresh sliding follow-up window after these reply kinds (not spontaneous).
 _FOLLOWUP_WINDOW_REFRESH_REASONS: frozenset[str] = frozenset(
-    {"mention", "reply_chain", "trigger", "name_alias", "inferred_followup"}
+    {"mention", "reply_chain", "trigger", "dm_direct", "name_alias", "inferred_followup"}
 )
 
 # One-line reactions / noise — not treated as continuing a SOPPO-directed thread.
@@ -114,6 +117,30 @@ def channel_is_allowed(
     if allowed_channel_ids:
         return channel_id in allowed_channel_ids
     return channel_name.lower() == fallback_channel_name.lower()
+
+
+def is_supported_message_channel(channel: discord.abc.Messageable) -> bool:
+    """True for Discord channel types SOPPO can process safely.
+
+    Guild text channels have names and normal server context. Discord DMs do
+    not, but they still have stable channel IDs and should be allowed when that
+    ID is explicitly present in DISCORD_ALLOWED_CHANNEL_IDS.
+    """
+    return isinstance(channel, (discord.TextChannel, discord.DMChannel))
+
+
+def display_name_for_author(author: discord.abc.User) -> str:
+    """Best-effort display name for guild members and DM users."""
+    return getattr(author, "display_name", None) or getattr(author, "name", str(author))
+
+
+def display_name_for_channel(channel: discord.abc.Messageable) -> str:
+    """Best-effort channel name for logs and allowlist fallback checks."""
+    name = getattr(channel, "name", None)
+    if name:
+        return str(name)
+    channel_id = getattr(channel, "id", "unknown")
+    return f"DM:{channel_id}"
 
 
 def should_ignore_message_author(
@@ -419,20 +446,50 @@ def build_prompt_messages(
     *,
     system_prompt: str,
     speaker_context: str = "",
+    guild_memory_block: str = "",
     channel_summary_block: str = "",
+    channel_memory_block: str = "",
     structured_memory_block: str = "",
     lore_block: str = "",
     returning_hint: str = "",
     history: list[dict[str, str]] | deque[dict[str, str]] | None = None,
+    recent_raw_turns: int | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble LLM messages in the intended context-injection order."""
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-    for block in (speaker_context, channel_summary_block, structured_memory_block, lore_block, returning_hint):
+    if structured_memory_block and not channel_memory_block:
+        channel_memory_block = structured_memory_block
+    for block in (
+        speaker_context,
+        guild_memory_block,
+        channel_summary_block,
+        channel_memory_block,
+        lore_block,
+        returning_hint,
+    ):
         if block:
             messages.append({"role": "system", "content": block})
-    for turn in history or []:
+    raw_history = list(history or [])
+    if recent_raw_turns is not None:
+        raw_history = raw_history[-max(1, int(recent_raw_turns)) :]
+    for turn in raw_history:
         messages.append({"role": turn["role"], "content": turn["content"]})
     return messages
+
+
+_SOFT_CLOSE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\s*(?:thanks|thank you|thx)?\s*,?\s*(?:that'?s all|that is all|we'?re good|we are good|all good)\s*[.!]*\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(?:soppo|sash)\s*,?\s*(?:that'?s all|that is all|we'?re good|we are good|all good|stand down|go quiet|quiet|stop replying)\s*[.!]*\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(?:stand down|go quiet|quiet|stop replying|stop for now|dismissed)\s*,?\s*(?:soppo|sash)?\s*[.!]*\s*$", re.IGNORECASE),
+)
+
+
+def message_is_soft_close(content: str) -> bool:
+    """True when a user is clearly closing a SOPPO-directed conversational latch."""
+    text = " ".join(str(content or "").strip().split())
+    if not text or len(text) > 80:
+        return False
+    return any(pattern.match(text) for pattern in _SOFT_CLOSE_PATTERNS)
 
 
 class SoppoBot(discord.Client):
@@ -457,6 +514,10 @@ class SoppoBot(discord.Client):
         self._history: dict[int, deque[dict[str, Any]]] = {}
         self._channel_summary_memory = PersistentChannelSummaryMemory(self.config.memory_store_path)
         self._structured_memory = StructuredMemoryStore(self._channel_summary_memory.store)
+        self._summary_pending_turns: dict[int, list[dict[str, Any]]] = {}
+        self._summary_messages_since_regen: dict[int, int] = {}
+        self._summary_last_regen_wall: dict[int, float] = {}
+        self._summary_in_progress: set[int] = set()
         self._last_reply_monotonic: dict[int, float] = {}
         self._last_bot_author_reply_monotonic: dict[int, float] = {}
         self._last_bot_text: dict[int, str] = {}
@@ -479,6 +540,166 @@ class SoppoBot(discord.Client):
         guild = getattr(channel, "guild", None)
         guild_id = getattr(guild, "id", None)
         return guild_id if isinstance(guild_id, int) else None
+
+    def _record_turn_for_neutral_summary(self, channel_id: int, turn: dict[str, Any]) -> None:
+        """Track new raw turns that should be folded into the neutral channel summary."""
+        self._summary_pending_turns.setdefault(channel_id, []).append(dict(turn))
+        self._summary_messages_since_regen[channel_id] = self._summary_messages_since_regen.get(channel_id, 0) + 1
+
+    async def _maybe_regenerate_neutral_summary(
+        self,
+        *,
+        channel_id: int,
+        guild_id: int | None,
+        now_wall: float,
+    ) -> bool:
+        """Regenerate the neutral rolling summary when count and cooldown gates pass."""
+        count = self._summary_messages_since_regen.get(channel_id, 0)
+        pending = self._summary_pending_turns.get(channel_id, [])
+        self._channel_summary_memory.update_summary_metadata(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            messages_since_regen=count,
+            pending_turn_count=len(pending),
+            last_seen_message_time=float(now_wall),
+        )
+        if count < self.config.summary_regen_message_count:
+            logger.debug(
+                "Neutral summary deferred for channel_id=%s: threshold not reached (%d/%d)",
+                channel_id,
+                count,
+                self.config.summary_regen_message_count,
+            )
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_regen_status="waiting_threshold",
+            )
+            return False
+
+        record = self._channel_summary_memory.get_summary_record(guild_id=guild_id, channel_id=channel_id)
+        stored_last = record.get("last_regen_wall")
+        if channel_id not in self._summary_last_regen_wall and isinstance(stored_last, (int, float)):
+            self._summary_last_regen_wall[channel_id] = float(stored_last)
+        last_regen = self._summary_last_regen_wall.get(channel_id)
+        if last_regen is not None and now_wall - last_regen < self.config.summary_regen_min_seconds:
+            remaining = self.config.summary_regen_min_seconds - (now_wall - last_regen)
+            logger.debug(
+                "Neutral summary deferred for channel_id=%s: cooldown active (%.1fs remaining)",
+                channel_id,
+                max(0.0, remaining),
+            )
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_regen_status="cooldown",
+                cooldown_remaining_seconds=max(0.0, remaining),
+            )
+            return False
+
+        if not pending:
+            logger.debug("Neutral summary deferred for channel_id=%s: no pending turns", channel_id)
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_regen_status="no_pending_turns",
+            )
+            return False
+        if channel_id in self._summary_in_progress:
+            logger.debug("Neutral summary already in progress for channel_id=%s", channel_id)
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_regen_status="in_progress",
+            )
+            return False
+
+        self._channel_summary_memory.update_summary_metadata(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            last_regen_status="in_progress",
+            last_regen_attempt=float(now_wall),
+            last_regen_error="",
+        )
+        summary_messages = build_neutral_summary_messages(
+            current_summary=self._channel_summary_memory.get_summary(guild_id=guild_id, channel_id=channel_id),
+            new_turns=pending,
+            max_summary_chars=self.config.max_neutral_summary_chars,
+        )
+        self._summary_in_progress.add(channel_id)
+        try:
+            async def _generate_summary() -> str:
+                return await generate_reply(
+                    backend=cast(LLMBackend, self.config.llm_backend),
+                    messages=summary_messages,
+                    temperature=0.2,
+                    top_p=0.9,
+                    max_tokens=max(self.config.max_tokens, 512),
+                    ollama_url=self.config.ollama_url,
+                    ollama_model=self.config.ollama_model,
+                    openai_api_key=self.config.openai_api_key,
+                    openai_model=self.config.openai_model,
+                    lmstudio_base_url=self.config.lmstudio_base_url,
+                    lmstudio_api_key=self.config.lmstudio_api_key,
+                    lmstudio_model=self.config.lmstudio_model,
+                    timeout_seconds=(
+                        self.config.openai_timeout_seconds
+                        if self.config.llm_backend == "openai"
+                        else 90.0
+                    ),
+                )
+
+            if self.config.llm_backend in ("openai", "lmstudio"):
+                if self._generation_lock.locked():
+                    logger.warning(
+                        "%s generation already in progress; waiting before starting neutral summary for channel_id=%s",
+                        self.config.llm_backend,
+                        channel_id,
+                    )
+                async with self._generation_lock:
+                    new_summary = await _generate_summary()
+            else:
+                new_summary = await _generate_summary()
+        except Exception as exc:
+            logger.exception("Neutral summary regeneration failed for channel_id=%s", channel_id)
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_regen_status="error",
+                last_regen_error=type(exc).__name__,
+            )
+            return False
+        finally:
+            self._summary_in_progress.discard(channel_id)
+
+        clean_summary = trim_neutral_summary(new_summary, self.config.max_neutral_summary_chars)
+        if not clean_summary:
+            logger.warning("Neutral summary generation returned empty text for channel_id=%s", channel_id)
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_regen_status="empty_summary",
+            )
+            return False
+        self._channel_summary_memory.set_neutral_summary(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            summary=clean_summary,
+            last_regen_wall=now_wall,
+            messages_since_regen=0,
+        )
+        self._channel_summary_memory.update_summary_metadata(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            pending_turn_count=0,
+            last_regen_status="success",
+            last_regen_error="",
+        )
+        self._summary_last_regen_wall[channel_id] = now_wall
+        self._summary_messages_since_regen[channel_id] = 0
+        self._summary_pending_turns[channel_id] = []
+        logger.debug("Regenerated neutral channel summary for channel_id=%s", channel_id)
+        return True
 
     def _maybe_rollover_channel_summary(self, channel_id: int, guild_id: int | None = None) -> int:
         """Summarize oldest per-channel history turns when the unsummarized window grows too large."""
@@ -610,6 +831,15 @@ class SoppoBot(discord.Client):
         w = self.config.inferred_followup_window_seconds
         self._inferred_followup_expires_at.setdefault(channel_id, {})[user_id] = now_wall + w
 
+    def _clear_inferred_followup_window(self, channel_id: int, user_id: int) -> None:
+        """Close the sliding follow-up window for a user/channel after a soft-close."""
+        by_ch = self._inferred_followup_expires_at.get(channel_id)
+        if not by_ch:
+            return
+        by_ch.pop(user_id, None)
+        if not by_ch:
+            self._inferred_followup_expires_at.pop(channel_id, None)
+
     def _should_accept_inferred_followup(
         self,
         message: discord.Message,
@@ -724,11 +954,12 @@ class SoppoBot(discord.Client):
         self_user_id = self.user.id if self.user else None
         if self_user_id is not None and message.author.id == self_user_id:
             return
-        if not isinstance(message.channel, discord.TextChannel):
+        if not is_supported_message_channel(message.channel):
             return
+        channel_display_name = display_name_for_channel(message.channel)
         if not channel_is_allowed(
             channel_id=message.channel.id,
-            channel_name=message.channel.name,
+            channel_name=channel_display_name,
             allowed_channel_ids=self.config.discord_allowed_channel_ids,
             fallback_channel_name=self.config.discord_channel_name,
         ):
@@ -753,6 +984,8 @@ class SoppoBot(discord.Client):
         ch_id = message.channel.id
         guild_id = message.guild.id if message.guild else None
         uid = message.author.id
+        author_display_name = display_name_for_author(message.author)
+        is_dm_channel = isinstance(message.channel, discord.DMChannel)
         now_wall = time.time()
 
         try:
@@ -760,9 +993,31 @@ class SoppoBot(discord.Client):
 
             last = self._last_reply_monotonic.get(ch_id)
             aliases = self.config.bot_name_aliases
-            if is_directly_addressed(message, bot_user, referenced, aliases):
+            directly_addressed = False if is_dm_channel else is_directly_addressed(message, bot_user, referenced, aliases)
+            active_followup = self._inferred_followup_is_active(ch_id, uid, now_wall)
+            if message_is_soft_close(message.content) and (is_dm_channel or directly_addressed or active_followup):
+                hist = self._history_for(ch_id)
+                turn = {
+                    "role": "user",
+                    "content": build_user_message_wrapper(
+                        author_display_name,
+                        message.content,
+                    ),
+                    "author_id": uid,
+                    "author_display": author_display_name,
+                }
+                hist.append(turn)
+                self._record_turn_for_neutral_summary(ch_id, turn)
+                self._clear_inferred_followup_window(ch_id, uid)
+                await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
+                logger.info("Closed inferred follow-up window without reply in %s", channel_display_name)
+                return
+            if is_dm_channel:
                 should = True
-                reason: ResponseReason | None = direct_response_reason(
+                reason: ResponseReason | None = "dm_direct"
+            elif directly_addressed:
+                should = True
+                reason = direct_response_reason(
                     message, bot_user, referenced, aliases
                 )
             elif self._should_accept_inferred_followup(
@@ -785,36 +1040,36 @@ class SoppoBot(discord.Client):
             if not should:
                 # Still record user lines into context so the model sees the room
                 hist = self._history_for(ch_id)
-                hist.append(
-                    {
-                        "role": "user",
-                        "content": build_user_message_wrapper(
-                            message.author.display_name,
-                            message.content,
-                        ),
-                        "author_id": uid,
-                        "author_display": message.author.display_name,
-                    }
-                )
-                self._maybe_rollover_channel_summary(ch_id, guild_id)
+                turn = {
+                    "role": "user",
+                    "content": build_user_message_wrapper(
+                        author_display_name,
+                        message.content,
+                    ),
+                    "author_id": uid,
+                    "author_display": author_display_name,
+                }
+                hist.append(turn)
+                self._record_turn_for_neutral_summary(ch_id, turn)
+                await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
                 return
 
             hist = self._history_for(ch_id)
-            user_line = build_user_message_wrapper(message.author.display_name, message.content)
-            hist.append(
-                {
-                    "role": "user",
-                    "content": user_line,
-                    "author_id": uid,
-                    "author_display": message.author.display_name,
-                }
-            )
-            self._maybe_rollover_channel_summary(ch_id, guild_id)
+            user_line = build_user_message_wrapper(author_display_name, message.content)
+            user_turn = {
+                "role": "user",
+                "content": user_line,
+                "author_id": uid,
+                "author_display": author_display_name,
+            }
+            hist.append(user_turn)
+            self._record_turn_for_neutral_summary(ch_id, user_turn)
+            await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
 
             last_bot = self._last_bot_text.get(ch_id)
             profile = self._get_user_profile(message.author.id)
             speaker_context = build_current_speaker_context(
-                display_name=message.author.display_name,
+                display_name=author_display_name,
                 user_id=message.author.id,
                 profile=profile,
             )
@@ -822,15 +1077,17 @@ class SoppoBot(discord.Client):
             channel_summary_block = build_channel_summary_block(
                 self._channel_summary_memory.get_summary(guild_id=guild_id, channel_id=ch_id)
             )
-            structured_memory_block = build_structured_memories_block(
-                collect_relevant_structured_memories(
-                    self._structured_memory,
-                    guild_id=guild_id,
-                    channel_id=ch_id,
-                    user_id=uid,
-                    query=message.content,
-                    limit=5,
-                ),
+            structured_memories = collect_relevant_structured_memories(
+                self._structured_memory,
+                guild_id=guild_id,
+                channel_id=ch_id,
+                user_id=uid,
+                query=message.content,
+                limit=5,
+            )
+            guild_memory_block = ""
+            channel_memory_block = build_structured_memories_block(
+                structured_memories,
                 limit=5,
             )
 
@@ -847,11 +1104,13 @@ class SoppoBot(discord.Client):
             llm_messages = build_prompt_messages(
                 system_prompt=build_system_prompt(last_bot_reply=last_bot),
                 speaker_context=speaker_context,
+                guild_memory_block=guild_memory_block,
                 channel_summary_block=channel_summary_block,
-                structured_memory_block=structured_memory_block,
+                channel_memory_block=channel_memory_block,
                 lore_block=lore_block,
                 returning_hint=returning_hint,
                 history=hist,
+                recent_raw_turns=self.config.recent_raw_turns,
             )
 
             llm_messages = trim_messages_to_max_chars(
@@ -892,9 +1151,13 @@ class SoppoBot(discord.Client):
                         ),
                     )
 
-                if self.config.llm_backend == "openai":
+                if self.config.llm_backend in ("openai", "lmstudio"):
                     if self._generation_lock.locked():
-                        logger.warning("OpenAI generation already in progress; waiting before starting another request (%s)", reason)
+                        logger.warning(
+                            "%s generation already in progress; waiting before starting another request (%s)",
+                            self.config.llm_backend,
+                            reason,
+                        )
                     async with self._generation_lock:
                         reply_text = await _generate_current_reply()
                 else:
@@ -945,13 +1208,13 @@ class SoppoBot(discord.Client):
                 logger.exception("Failed to send Discord message")
                 return
 
-            hist.append(
-                {
-                    "role": "assistant",
-                    "content": build_assistant_message_wrapper(reply_text),
-                }
-            )
-            self._maybe_rollover_channel_summary(ch_id, guild_id)
+            assistant_turn = {
+                "role": "assistant",
+                "content": build_assistant_message_wrapper(reply_text),
+            }
+            hist.append(assistant_turn)
+            self._record_turn_for_neutral_summary(ch_id, assistant_turn)
+            await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=time.time())
             sent_mono = time.monotonic()
             self._last_reply_monotonic[ch_id] = sent_mono
             if message.author.bot:
@@ -961,7 +1224,7 @@ class SoppoBot(discord.Client):
                 self._record_returning_user_greeting(ch_id, uid, time.monotonic())
             if reason in _FOLLOWUP_WINDOW_REFRESH_REASONS:
                 self._refresh_inferred_followup_window(ch_id, uid, time.time())
-            logger.info("Sent reply (%s, %d part(s)) in #%s", reason, len(parts), message.channel.name)
+            logger.info("Sent reply (%s, %d part(s)) in %s", reason, len(parts), channel_display_name)
 
         finally:
             self._touch_user_channel_activity(ch_id, uid, now_wall)

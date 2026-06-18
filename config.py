@@ -52,6 +52,12 @@ class Config:
     returning_user_greeting_chance: float
     # Sliding window: after addressing SOPPO, same user can keep replying without re-mentioning
     inferred_followup_window_seconds: float
+    # Neutral context memory: keep only a tiny raw transcript and summarize older channel context.
+    recent_raw_turns: int
+    summary_regen_message_count: int
+    summary_regen_min_seconds: float
+    max_neutral_summary_chars: int
+    summary_model_mode: str
 
 
 def _require(name: str) -> str:
@@ -232,6 +238,22 @@ def load_config() -> Config:
     followup_window = _float_env("INFERRED_FOLLOWUP_WINDOW_SECONDS", 180.0)
     followup_window = max(15.0, min(86_400.0, followup_window))
 
+    recent_raw_turns = _int_env("RECENT_RAW_TURNS", 3)
+    recent_raw_turns = max(1, min(10, recent_raw_turns))
+
+    summary_regen_message_count = _int_env("SUMMARY_REGEN_MESSAGE_COUNT", 10)
+    summary_regen_message_count = max(1, min(100, summary_regen_message_count))
+
+    summary_regen_min_seconds = _float_env("SUMMARY_REGEN_MIN_SECONDS", 300.0)
+    summary_regen_min_seconds = max(0.0, min(86_400.0, summary_regen_min_seconds))
+
+    max_neutral_summary_chars = _int_env("MAX_NEUTRAL_SUMMARY_CHARS", 1800)
+    max_neutral_summary_chars = max(200, min(20_000, max_neutral_summary_chars))
+
+    summary_model_mode = os.getenv("SUMMARY_MODEL_MODE", "neutral").strip().lower() or "neutral"
+    if summary_model_mode != "neutral":
+        raise ValueError('SUMMARY_MODEL_MODE must be "neutral".')
+
     return Config(
         discord_bot_token=token,
         llm_backend=llm_backend,
@@ -266,6 +288,11 @@ def load_config() -> Config:
         channel_greeting_cooldown_seconds=channel_greet_cd,
         returning_user_greeting_chance=greet_chance,
         inferred_followup_window_seconds=followup_window,
+        recent_raw_turns=recent_raw_turns,
+        summary_regen_message_count=summary_regen_message_count,
+        summary_regen_min_seconds=summary_regen_min_seconds,
+        max_neutral_summary_chars=max_neutral_summary_chars,
+        summary_model_mode=summary_model_mode,
     )
 
 
@@ -302,4 +329,9 @@ def load_config() -> Config:
 # CHANNEL_GREETING_COOLDOWN_SECONDS   — monotonic cooldown before any hint in channel (4h)
 # RETURNING_USER_GREETING_CHANCE      — probability when other checks pass (default 0.20)
 # INFERRED_FOLLOWUP_WINDOW_SECONDS    — wall-clock seconds to keep “same user” convo alive (default 180)
+# RECENT_RAW_TURNS          — raw transcript turns sent after neutral summary (default 3)
+# SUMMARY_REGEN_MESSAGE_COUNT — new channel messages before neutral summary regeneration (default 10)
+# SUMMARY_REGEN_MIN_SECONDS — cooldown between neutral summary regenerations (default 300)
+# MAX_NEUTRAL_SUMMARY_CHARS — max chars retained in neutral channel summary (default 1800)
+# SUMMARY_MODEL_MODE        — neutral (summary calls omit SOPPO personality prompt)
 # Character prompt           — edit prompts.build_system_prompt() in prompts.py
