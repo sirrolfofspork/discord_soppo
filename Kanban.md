@@ -37,6 +37,8 @@
 
 ## Guardrails
 
+- Change history lives in `CHANGELOG.md`; update it after substantive SOPPO behavior/memory changes.
+- Repo-local handoff locations are listed in `AGENTS.md` under "Documentation Map".
 - Keep SOPPO offline during invasive memory edits unless SKK explicitly asks for restart.
 - Preserve existing backend routing; do not add a new model/provider path for memory maintenance.
 - Keep raw transcript injection tiny: only the configured recent turns.

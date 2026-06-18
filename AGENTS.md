@@ -201,6 +201,17 @@ __pycache__/
 .venv/
 If logs contain private Discord content, treat them as sensitive.
 
+## Documentation Map
+
+Use these files to pick work back up quickly:
+
+- `Kanban.md` — current SOPPO memory-improvement board. Contains completed memory work, ready backlog, and guardrails.
+- `CHANGELOG.md` — chronological summary of notable changes and verification commands/results. Start here when asking “what changed last time?”
+- `docs/soppo_soul.md` — persona/runtime anchor for SOPPO’s character voice and identity boundaries.
+- `tools/inspect_memory.py` — offline memory-store inspection tool. Run with `./.venv/bin/python tools/inspect_memory.py` from the project root.
+
+For memory-system work, read `CHANGELOG.md` and `Kanban.md` before editing code. Do not rely on memory or chat history alone; the files are the repo-local handoff.
+
 ## Development Workflow
 
 Before editing:
