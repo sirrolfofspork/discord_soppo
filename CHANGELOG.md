@@ -1,5 +1,24 @@
 # SOPPO Discord Changelog
 
+## 2026-06-19 — User systemd service for SOPPO Discord
+
+### Runtime behavior
+
+- Added a user-level `soppo-discord.service` template so SOPPO can be supervised by systemd instead of a fragile terminal/background process.
+- Installed and enabled the service on the Hermes host with restart-on-failure behavior.
+- Left Discord token handling unchanged: `main.py` still loads secrets from the repo-local `.env`; the unit file contains no credentials.
+
+### Verification
+
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git)(/|$)' .`
+- `systemctl --user enable --now soppo-discord.service`
+- `systemctl --user status soppo-discord.service --no-pager`
+- `journalctl --user -u soppo-discord.service -n 80 --no-pager`
+
+### Operational note
+
+SOPPO can now reconnect automatically if the Python bot process exits. LM Studio remains a separate dependency when `LLM_BACKEND=lmstudio`; if LM Studio or its loaded model is unavailable, SOPPO may stay online but fail reply generation until the backend is restored.
+
 ## 2026-06-18 — Memory handling and observability pass
 
 Commit: `01ca1dd Improve SOPPO memory handling`

@@ -16,6 +16,10 @@
 - [x] Add local memory inspection tooling.
   - `tools/inspect_memory.py` inspects memory_store.json without Discord credentials or bot startup.
   - Prints namespaces, summaries, structured memories, health metadata, stale/high-hit records, and suspicious identity terms.
+- [x] Add user systemd service supervision.
+  - `deploy/soppo-discord.service` runs `.venv/bin/python main.py` from the project root.
+  - User unit is installed as `~/.config/systemd/user/soppo-discord.service`, enabled, and configured with restart-on-failure.
+  - Secrets remain in `.env`; the unit file contains no Discord token or API key.
 
 ## Ready
 

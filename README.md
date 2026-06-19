@@ -151,6 +151,35 @@ On startup you should see logs similar to:
 - Other-bot response mode and per-bot-author cooldown
 - Channel summary memory threshold, batch size, and summary character cap
 
+## Run as a user systemd service
+
+A user-level service template is provided at:
+
+```bash
+deploy/soppo-discord.service
+```
+
+Install or refresh it on the Hermes Linux host with:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/soppo-discord.service ~/.config/systemd/user/soppo-discord.service
+systemctl --user daemon-reload
+systemctl --user enable --now soppo-discord.service
+```
+
+Operational commands:
+
+```bash
+systemctl --user status soppo-discord.service --no-pager
+journalctl --user -u soppo-discord.service -f
+systemctl --user restart soppo-discord.service
+```
+
+The service runs `.venv/bin/python main.py` from the project root. Secrets stay in the repo-local `.env`, loaded by `main.py`; do not put tokens in the unit file.
+
+If `LLM_BACKEND=lmstudio`, LM Studio's local OpenAI-compatible server and the configured model still need to be available. SOPPO can be online while LM Studio is down, but replies will fail until the backend is restored.
+
 ## Project layout
 
 | File | Role |
