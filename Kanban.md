@@ -20,6 +20,10 @@
   - `deploy/soppo-discord.service` runs `.venv/bin/python main.py` from the project root.
   - User unit is installed as `~/.config/systemd/user/soppo-discord.service`, enabled, and configured with restart-on-failure.
   - Secrets remain in `.env`; the unit file contains no Discord token or API key.
+- [x] Harden newest-live-message priority.
+  - Outbound prompts mark the final live Discord user message explicitly.
+  - Neutral summary regeneration is deferred until after SOPPO replies, so the current user turn is not folded into a system summary before it is answered.
+  - Channel summaries and structured memories now say they are background only, not live requests or current conversation turns.
 
 ## Ready
 

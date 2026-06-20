@@ -23,6 +23,7 @@ class SystemPromptTests(unittest.TestCase):
             "do not become",
             "technical help",
             "safe, legal",
+            "Do not answer memory",
         ]
         for phrase in expected_phrases:
             with self.subTest(phrase=phrase):

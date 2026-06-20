@@ -134,8 +134,47 @@ class NeutralSummaryPromptTests(unittest.TestCase):
 
         self.assertEqual(
             [m["content"] for m in messages],
-            ["1 CORE", "2 SPEAKER", "3 GUILD", "4 SUMMARY", "5 CHANNEL", "6 LORE", "7 HINT", "raw-2", "raw-3", "raw-4"],
+            [
+                "1 CORE",
+                "2 SPEAKER",
+                "3 GUILD",
+                "4 SUMMARY",
+                "5 CHANNEL",
+                "6 LORE",
+                "7 HINT",
+                "raw-2",
+                "raw-3",
+                "raw-4",
+            ],
         )
+        self.assertEqual(messages[-1]["role"], "assistant")
+        self.assertNotIn("Newest live Discord message", messages[-1]["content"])
+        self.assertNotIn("Newest live Discord message", messages[-2]["content"])
+
+    def test_build_prompt_messages_marks_latest_user_turn_as_live_message(self):
+        from bot import build_prompt_messages
+
+        history = deque(
+            [
+                {"role": "user", "content": "old user"},
+                {"role": "assistant", "content": "old reply"},
+                {"role": "user", "content": "[Alice]: current question"},
+            ]
+        )
+
+        messages = build_prompt_messages(
+            system_prompt="CORE",
+            channel_summary_block="SUMMARY",
+            history=history,
+            recent_raw_turns=3,
+        )
+
+        self.assertEqual(messages[-1]["role"], "user")
+        self.assertEqual(
+            messages[-1]["content"],
+            "[Newest live Discord message — answer this message directly now]\n[Alice]: current question",
+        )
+        self.assertNotIn("Newest live Discord message", messages[-3]["content"])
 
 
 class NeutralSummaryRegenerationTests(unittest.IsolatedAsyncioTestCase):

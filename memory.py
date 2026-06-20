@@ -253,7 +253,7 @@ def build_channel_summary_block(summary: str) -> str:
     return "\n".join(
         [
             "[Channel neutral summary]",
-            "Neutral earlier context for this channel:",
+            "Neutral background summary of earlier channel context, not live messages:",
             clean,
             "",
             "Use this only as background continuity when the newest live message clearly needs it.",

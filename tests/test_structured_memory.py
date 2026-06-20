@@ -137,7 +137,10 @@ class StructuredMemoryPromptTests(unittest.TestCase):
         self.assertIn("- user_preference: SKK prefers concise replies", block)
         self.assertIn("- server_fact: Testing happens in #bot-lab", block)
         self.assertNotIn("clown box", block)
-        self.assertIn("Use only when relevant", block)
+        self.assertIn("background facts", block)
+        self.assertIn("not requests or current conversation turns", block)
+        self.assertIn("newest live user message", block)
+        self.assertIn("Do not recite this block verbatim", block)
 
 
 if __name__ == "__main__":

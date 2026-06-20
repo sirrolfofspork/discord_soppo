@@ -51,6 +51,7 @@ def build_system_prompt(*, last_bot_reply: str | None = None) -> str:
         "- treat this as real-time Discord chat, not an essay bank\n"
         "- latest live human message wins: answer the newest message directly before reacting to memory, summaries, or older context\n"
         "- summaries and memories are background maps, not active pressure; use them only when relevant to the newest message\n"
+        "- Do not answer memory, summaries, or prior scene notes as if they are live messages\n"
         "- respond naturally to the latest message while using recent context when helpful\n"
         "- if current-speaker context provides a preferred form of address or relationship, use it lightly and naturally\n"
         "- otherwise refer to users by their Discord display names\n"
@@ -178,15 +179,25 @@ def build_current_speaker_context(
     return "\n".join(lines).strip()
 
 
+CURRENT_LIVE_MESSAGE_HEADER = "[Newest live Discord message — answer this message directly now]"
+
+
 def build_user_message_wrapper(author_display: str, message_content: str) -> str:
     """
-    Format a user message for the conversation history sent to the LLM.
+    Format a user message for stored conversation history.
 
-    Keep this simple and readable.
+    Keep stored history simple and readable. The outbound prompt can add a
+    live-message priority marker without mutating persisted history.
     """
     safe_author = " ".join(author_display.strip().split()) if author_display else "User"
     safe_content = message_content.strip()
     return f"[{safe_author}]: {safe_content}"
+
+
+def build_current_live_message_wrapper(message_content: str) -> str:
+    """Mark the newest live Discord user message in the outbound prompt only."""
+    safe_content = str(message_content or "").strip()
+    return f"{CURRENT_LIVE_MESSAGE_HEADER}\n{safe_content}"
 
 
 def build_assistant_message_wrapper(message_content: str) -> str:

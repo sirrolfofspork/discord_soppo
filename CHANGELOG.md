@@ -1,5 +1,21 @@
 # SOPPO Discord Changelog
 
+## 2026-06-20 — Newest live message priority hardening
+
+### Runtime behavior
+
+- Marked the final live Discord user message in the outbound LLM prompt as the message to answer directly.
+- Deferred neutral summary regeneration on reply-generating turns until after SOPPO sends her reply, preventing the current user message from being folded into a system summary before it is answered.
+- Strengthened channel summary and structured-memory prompt wording so memories/summaries are background facts, not live requests or current conversation turns.
+- Added an explicit global behavior rule: do not answer memory, summaries, or prior scene notes as if they are live messages.
+
+### Verification
+
+- `./.venv/bin/python -m unittest tests.test_prompts tests.test_channel_memory tests.test_structured_memory tests.test_neutral_context_memory -v`
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+- `./.venv/bin/python -m unittest discover -v`
+- Result: targeted 31-test suite passed; full 65-test suite passed; compileall passed.
+
 ## 2026-06-19 — User systemd service for SOPPO Discord
 
 ### Runtime behavior

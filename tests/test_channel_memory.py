@@ -151,9 +151,19 @@ class PromptAssemblyOrderingTests(unittest.TestCase):
 
         self.assertEqual(
             [m["content"] for m in messages],
-            ["SYSTEM", "SPEAKER", "SUMMARY", "STRUCTURED", "LORE", "FOLLOWUP", "old recent", "current message"],
+            [
+                "SYSTEM",
+                "SPEAKER",
+                "SUMMARY",
+                "STRUCTURED",
+                "LORE",
+                "FOLLOWUP",
+                "old recent",
+                "[Newest live Discord message — answer this message directly now]\ncurrent message",
+            ],
         )
-        self.assertEqual([m["role"] for m in messages[:5]], ["system"] * 5)
+        self.assertEqual([m["role"] for m in messages[:6]], ["system"] * 6)
+        self.assertEqual(messages[-1]["role"], "user")
 
 
 if __name__ == "__main__":

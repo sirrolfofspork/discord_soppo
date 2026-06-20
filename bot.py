@@ -46,6 +46,7 @@ from memory_extractor import (
 from memory_store import save_memory_store
 from prompts import (
     build_assistant_message_wrapper,
+    build_current_live_message_wrapper,
     build_current_speaker_context,
     build_system_prompt,
     build_user_message_wrapper,
@@ -472,8 +473,11 @@ def build_prompt_messages(
     raw_history = list(history or [])
     if recent_raw_turns is not None:
         raw_history = raw_history[-max(1, int(recent_raw_turns)) :]
-    for turn in raw_history:
-        messages.append({"role": turn["role"], "content": turn["content"]})
+    for index, turn in enumerate(raw_history):
+        content = turn["content"]
+        if index == len(raw_history) - 1 and turn.get("role") == "user":
+            content = build_current_live_message_wrapper(content)
+        messages.append({"role": turn["role"], "content": content})
     return messages
 
 
@@ -1064,7 +1068,11 @@ class SoppoBot(discord.Client):
             }
             hist.append(user_turn)
             self._record_turn_for_neutral_summary(ch_id, user_turn)
-            await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
+            # Do not regenerate the neutral summary before answering this live
+            # message. If threshold/cooldown gates pass, pre-reply regeneration
+            # can fold the current user turn into a system summary and make the
+            # model treat that summary as active conversation. Regenerate after
+            # the assistant reply is recorded instead.
 
             last_bot = self._last_bot_text.get(ch_id)
             profile = self._get_user_profile(message.author.id)
