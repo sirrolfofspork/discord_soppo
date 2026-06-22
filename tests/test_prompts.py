@@ -1,4 +1,6 @@
+import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -73,18 +75,35 @@ class SystemPromptTests(unittest.TestCase):
 
 
 class UserProfilePromptSeparationTests(unittest.TestCase):
-    def test_skk_specific_affection_lives_in_user_profile(self):
+    def test_private_profile_context_loads_from_external_profile_file(self):
         from user_profiles import load_user_profiles
 
-        profiles = load_user_profiles(Path(__file__).resolve().parents[1] / "user_profiles.json")
-        skk = profiles["717449407573786655"]
-        notes_text = "\n".join(str(note) for note in skk.get("notes", []))
-        combined = f"{skk.get('relationship', '')}\n{notes_text}".lower()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "user_profiles.json"
+            profile_path.write_text(
+                json.dumps(
+                    {
+                        "123456789": {
+                            "preferred_name": "Commander",
+                            "relationship": "trusted operator",
+                            "notes": [
+                                "Comfortable with playful teasing",
+                                "Prefers concise debugging help",
+                            ],
+                        }
+                    }
+                )
+            )
 
-        self.assertIn("spouse", combined)
-        self.assertIn("guardian", combined)
-        self.assertIn("emotional anchor", combined)
-        self.assertIn("gaelic", combined)
+            profiles = load_user_profiles(profile_path)
+
+        profile = profiles["123456789"]
+        notes_text = "\n".join(str(note) for note in profile.get("notes", []))
+        combined = f"{profile.get('relationship', '')}\n{notes_text}".lower()
+
+        self.assertIn("trusted operator", combined)
+        self.assertIn("playful teasing", combined)
+        self.assertIn("concise debugging", combined)
 
 
 if __name__ == "__main__":
