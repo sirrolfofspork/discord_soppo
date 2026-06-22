@@ -35,6 +35,9 @@ wheels/
 memory_store.json
 user_profiles.json
 
+gittoken
+gittoken.txt
+
 # IDE / OS
 .idea/
 .vscode/
