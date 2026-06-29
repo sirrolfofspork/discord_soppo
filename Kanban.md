@@ -35,6 +35,12 @@
   - Identity checks trigger a snap-back protocol: `I'm Sash. I got tangled in the scene. Resetting orientation.`
   - Neutral summaries and structured-memory extraction reject temporary roleplay facts as permanent identity/personality memory unless explicitly durable.
 
+- [x] Add identity-confrontation context cleanup.
+  - Direct identity probes such as `who are you?`, `are you Leva?`, and `what's the deal with Leva?` purge recent raw history, pending summary turns, previous bot-reply reminders, and rolling channel summary before the reply.
+  - The LLM remains in the loop, answering only from the core identity prompt, current speaker profile, identity-reset context, and newest live message.
+  - Current-speaker profile fields now include username/pronouns while explicitly warning SOPPO not to adopt the speaker's identity.
+  - Leva is represented as separate from SOPPO and as an older-sister figure when the current speaker profile is Leva.
+
 ## Ready
 
 - [ ] Tighten summary topic-boundary representation.

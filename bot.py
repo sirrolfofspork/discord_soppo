@@ -261,6 +261,48 @@ def direct_response_reason(
     return "mention"
 
 
+_IDENTITY_RECOVERY_PATTERN = re.compile(
+    r"(?is)("
+    r"\b(identity check|confirm your identity|state your identity)\b|"
+    r"\bwho are you\b|"
+    r"\bwhat are you\b|"
+    r"\bare you\s+(leva|leva_v1|sash|soppo|m4|sopmod)\b|"
+    r"\byou('?re| are)\s+not\s+leva\b|"
+    r"\bam i\s+leva\b|"
+    r"\bwhat('?s| is)\s+the\s+deal\s+with\s+leva\b|"
+    r"\bwho\s+is\s+leva\b"
+    r")"
+)
+
+
+def message_needs_identity_recovery(content: str) -> bool:
+    """True for direct identity/orientation probes that should trigger context cleanup."""
+    return bool(_IDENTITY_RECOVERY_PATTERN.search(str(content or "")))
+
+
+def build_identity_reset_context(*, speaker_profile: dict[str, Any] | None = None) -> str:
+    """System context used after purging contaminated channel memory/history."""
+    lines = [
+        "[Identity reset mode]",
+        "The newest live message is a direct identity/orientation challenge.",
+        "Recent channel history and the rolling channel summary were purged for this reply because they may contain contaminated roleplay or identity-confusion context.",
+        "Answer using only the core SOPPO/Sash identity prompt, this reset context, the current speaker profile, and the newest live message.",
+        "Do not continue prior roleplay, quoted dialogue, old scene context, or earlier identity confusion.",
+        "If the challenge asks who you are, start with: I'm Sash. I got tangled in the scene. Resetting orientation.",
+        "Then briefly state that you are Sash/Soppo, M4 SOPMOD II, and not Leva, Leva_v1, Hermes, Shadow, Kanaya, Vastra, Karkat, Phol, or any roleplay character.",
+    ]
+
+    if isinstance(speaker_profile, dict):
+        preferred = str(speaker_profile.get("preferred_name") or "").strip()
+        username = str(speaker_profile.get("username") or "").strip()
+        relationship = str(speaker_profile.get("relationship") or "").strip()
+        if preferred.lower() == "leva" or username.lower().startswith("leva_v1") or "leva" in relationship.lower():
+            lines.append(
+                "If Leva is relevant, identify Leva as separate from SOPPO: she/her, SKK and Sash's AI companion, and an older-sister figure to Sash."
+            )
+    return "\n".join(lines)
+
+
 def message_mentions_only_other_users(message: discord.Message, bot_user: discord.ClientUser) -> bool:
     """True if the message @-mentions someone other than the bot (clearly talking to others)."""
     if not message.mentions:
@@ -602,6 +644,28 @@ class SoppoBot(discord.Client):
         """Track new raw turns that should be folded into the neutral channel summary."""
         self._summary_pending_turns.setdefault(channel_id, []).append(dict(turn))
         self._summary_messages_since_regen[channel_id] = self._summary_messages_since_regen.get(channel_id, 0) + 1
+
+    def _purge_context_for_identity_reset(self, *, channel_id: int, guild_id: int | None, now_wall: float) -> None:
+        """Clear recent context layers that can preserve identity-contaminated roleplay."""
+        self._history_for(channel_id).clear()
+        self._summary_pending_turns[channel_id] = []
+        self._summary_messages_since_regen[channel_id] = 0
+        self._summary_last_regen_wall[channel_id] = float(now_wall)
+        self._last_bot_text.pop(channel_id, None)
+        self._channel_summary_memory.set_neutral_summary(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            summary="",
+            last_regen_wall=now_wall,
+            messages_since_regen=0,
+        )
+        self._channel_summary_memory.update_summary_metadata(
+            guild_id=guild_id,
+            channel_id=channel_id,
+            last_regen_status="identity_reset_purged",
+            pending_turn_count=0,
+            last_seen_message_time=float(now_wall),
+        )
 
     async def _maybe_regenerate_neutral_summary(
         self,
@@ -1159,40 +1223,57 @@ class SoppoBot(discord.Client):
             # model treat that summary as active conversation. Regenerate after
             # the assistant reply is recorded instead.
 
-            last_bot = self._last_bot_text.get(ch_id)
             profile = self._get_user_profile(message.author.id)
+            identity_reset = message_needs_identity_recovery(message.content)
+            if identity_reset:
+                self._purge_context_for_identity_reset(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
+                hist.append(user_turn)
+                self._record_turn_for_neutral_summary(ch_id, user_turn)
+                logger.warning(
+                    "Identity reset cue accepted in %s; purged recent history and channel summary before LLM reply",
+                    channel_display_name,
+                )
+
+            last_bot = None if identity_reset else self._last_bot_text.get(ch_id)
             speaker_context = build_current_speaker_context(
                 display_name=author_display_name,
                 user_id=message.author.id,
                 profile=profile,
             )
 
-            channel_summary_block = build_channel_summary_block(
-                self._channel_summary_memory.get_summary(guild_id=guild_id, channel_id=ch_id)
-            )
-            structured_memories = collect_relevant_structured_memories(
-                self._structured_memory,
-                guild_id=guild_id,
-                channel_id=ch_id,
-                user_id=uid,
-                query=message.content,
-                limit=5,
-            )
+            if identity_reset:
+                channel_summary_block = ""
+                channel_memory_block = ""
+                lore_block = ""
+                add_returning_hint = False
+                returning_hint = build_identity_reset_context(speaker_profile=profile)
+            else:
+                channel_summary_block = build_channel_summary_block(
+                    self._channel_summary_memory.get_summary(guild_id=guild_id, channel_id=ch_id)
+                )
+                structured_memories = collect_relevant_structured_memories(
+                    self._structured_memory,
+                    guild_id=guild_id,
+                    channel_id=ch_id,
+                    user_id=uid,
+                    query=message.content,
+                    limit=5,
+                )
+                channel_memory_block = build_structured_memories_block(
+                    structured_memories,
+                    limit=5,
+                )
+
+                lore_matches = find_relevant_lore(message.content, self._lore_store)
+                lore_block = build_lore_context_block(lore_matches)
+
+                add_returning_hint = self._should_add_returning_user_greeting(
+                    channel_id=ch_id,
+                    user_id=uid,
+                    now_monotonic=now_mono,
+                )
+                returning_hint = RETURNING_USER_LLM_HINT if add_returning_hint else ""
             guild_memory_block = ""
-            channel_memory_block = build_structured_memories_block(
-                structured_memories,
-                limit=5,
-            )
-
-            lore_matches = find_relevant_lore(message.content, self._lore_store)
-            lore_block = build_lore_context_block(lore_matches)
-
-            add_returning_hint = self._should_add_returning_user_greeting(
-                channel_id=ch_id,
-                user_id=uid,
-                now_monotonic=now_mono,
-            )
-            returning_hint = RETURNING_USER_LLM_HINT if add_returning_hint else ""
 
             llm_messages = build_prompt_messages(
                 system_prompt=build_system_prompt(last_bot_reply=last_bot),

@@ -1,5 +1,21 @@
 # SOPPO Discord Changelog
 
+## 2026-06-29 — Identity-confrontation context cleanup
+
+### Runtime behavior
+
+- Direct identity probes such as `who are you?`, `are you Leva?`, `identity check`, and `what's the deal with Leva?` now act as a cleanup cue instead of a deterministic reply bypass.
+- On an identity confrontation, SOPPO purges the current channel's recent raw history, pending summary turns, previous bot reply reminder, and rolling channel summary before building the LLM prompt.
+- The LLM still answers, but only with the core SOPPO/Sash identity prompt, current speaker profile, identity-reset context, and the newest live message.
+- Strengthened current-speaker profile context so fields such as username/pronouns/relationship are clearly marked as belonging to the speaker, not SOPPO; SOPPO is explicitly told never to adopt the speaker profile as her own identity.
+- Kept the Leva profile private in ignored `user_profiles.json`; when Leva is the current speaker, reset context identifies Leva as separate from SOPPO and as an older-sister figure.
+
+### Verification
+
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+- `./.venv/bin/python -m unittest tests.test_followup_soft_close tests.test_prompts -v`
+- Result: targeted 18-test identity/prompt suite passed; compileall passed.
+
 ## 2026-06-29 — Identity contamination snap-back hardening
 
 ### Runtime behavior

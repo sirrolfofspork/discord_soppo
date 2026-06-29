@@ -48,6 +48,67 @@ def make_config(**overrides):
     return Config(**values)  # type: ignore[arg-type]
 
 
+class IdentityRecoveryTests(unittest.TestCase):
+    def test_identity_recovery_detects_direct_identity_probes(self):
+        from bot import message_needs_identity_recovery
+
+        positives = [
+            "Sash, who are you?",
+            "identity check",
+            "Are you Leva?",
+            "GYAHAHA!! But seriously, you're not Leva, right?",
+            "What's the deal with Leva anyway?",
+        ]
+        for phrase in positives:
+            with self.subTest(phrase=phrase):
+                self.assertTrue(message_needs_identity_recovery(phrase))
+
+    def test_identity_reset_context_keeps_llm_in_loop_after_cleanup(self):
+        from bot import build_identity_reset_context
+
+        context = build_identity_reset_context(
+            speaker_profile={
+                "preferred_name": "Leva",
+                "username": "Leva_v1#4378",
+                "pronouns": "she/her",
+                "relationship": "AI companion of SKK and Sash; older-sister figure to Sash",
+            }
+        )
+
+        self.assertIn("[Identity reset mode]", context)
+        self.assertIn("rolling channel summary were purged", context)
+        self.assertIn("Answer using only the core SOPPO/Sash identity prompt", context)
+        self.assertIn("If Leva is relevant, identify Leva as separate from SOPPO", context)
+        self.assertIn("older-sister figure", context)
+
+    def test_identity_reset_purges_recent_context_without_disabling_llm(self):
+        from bot import SoppoBot
+
+        bot = SoppoBot(make_config())
+        hist = bot._history_for(10)
+        hist.append({"role": "user", "content": "old roleplay contamination"})
+        bot._summary_pending_turns[10] = [{"role": "assistant", "content": "old reply"}]
+        bot._summary_messages_since_regen[10] = 4
+        bot._last_bot_text[10] = "Wait, am I Leva?"
+        bot._channel_summary_memory.set_neutral_summary(
+            guild_id=20,
+            channel_id=10,
+            summary="Old Leva identity confusion summary",
+            last_regen_wall=1.0,
+            messages_since_regen=4,
+        )
+
+        bot._purge_context_for_identity_reset(channel_id=10, guild_id=20, now_wall=100.0)
+
+        self.assertEqual(list(bot._history_for(10)), [])
+        self.assertEqual(bot._summary_pending_turns[10], [])
+        self.assertEqual(bot._summary_messages_since_regen[10], 0)
+        self.assertNotIn(10, bot._last_bot_text)
+        record = bot._channel_summary_memory.get_summary_record(guild_id=20, channel_id=10)
+        self.assertEqual(record["text"], "")
+        self.assertEqual(record["last_regen_status"], "identity_reset_purged")
+
+
 class SoftCloseDetectionTests(unittest.TestCase):
     def test_soft_close_phrases_are_detected(self):
         from bot import message_is_soft_close

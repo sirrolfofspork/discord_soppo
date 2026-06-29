@@ -83,6 +83,27 @@ class SystemPromptTests(unittest.TestCase):
 
 
 class UserProfilePromptSeparationTests(unittest.TestCase):
+    def test_current_speaker_context_marks_profile_as_not_soppo_identity(self):
+        from prompts import build_current_speaker_context
+
+        context = build_current_speaker_context(
+            display_name="Leva_v1",
+            user_id=1486416265810673714,
+            profile={
+                "preferred_name": "Leva",
+                "username": "Leva_v1#4378",
+                "pronouns": "she/her",
+                "relationship": "AI companion of SKK and Sash; older-sister figure to Sash",
+                "notes": ["Leva is like an older sister to Sash."],
+            },
+        )
+
+        self.assertIn("Preferred form of address: Leva", context)
+        self.assertIn("Discord username: Leva_v1#4378", context)
+        self.assertIn("Pronouns: she/her", context)
+        self.assertIn("The current speaker is separate from SOPPO", context)
+        self.assertIn("never adopt the speaker's name", context)
+
     def test_private_profile_context_loads_from_external_profile_file(self):
         from user_profiles import load_user_profiles
 

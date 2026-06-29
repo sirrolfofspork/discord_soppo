@@ -168,6 +168,14 @@ def build_current_speaker_context(
     if isinstance(preferred_name, str) and preferred_name.strip():
         lines.append(f"Preferred form of address: {preferred_name.strip()}")
 
+    username = profile.get("username")
+    if isinstance(username, str) and username.strip():
+        lines.append(f"Discord username: {username.strip()}")
+
+    pronouns = profile.get("pronouns")
+    if isinstance(pronouns, str) and pronouns.strip():
+        lines.append(f"Pronouns: {pronouns.strip()}")
+
     relationship = profile.get("relationship")
     if isinstance(relationship, str) and relationship.strip():
         lines.append(f"Relationship: {relationship.strip()}")
@@ -182,7 +190,8 @@ def build_current_speaker_context(
     lines.extend(
         [
             "",
-            "Use this only as light context.",
+            "Use this only as light context about the current speaker, not as SOPPO's identity.",
+            "The current speaker is separate from SOPPO; never adopt the speaker's name, username, pronouns, relationship, or role as your own.",
             "Do not mention the user ID unless explicitly asked.",
             "Do not recite profile notes back to the user unless naturally relevant.",
         ]
