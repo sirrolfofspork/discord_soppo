@@ -1,5 +1,21 @@
 # SOPPO Discord Changelog
 
+## 2026-06-29 — Reply coalescing for slow LLM backlog control
+
+### Runtime behavior
+
+- Added per-channel reply coalescing so a slow LM Studio generation does not queue every latch-eligible message behind it.
+- While a channel reply is active, SOPPO keeps only one latest useful pending message for that channel instead of starting another waiting LLM request.
+- Pending priority is: identity reset > direct address/mention/reply/trigger/name alias > inferred follow-up > spontaneous/ambient ignored.
+- New direct `Sash`/`Soppo` messages replace older pending follow-ups; newer equal-priority messages replace older ones so SOPPO answers the latest useful message, not ghosts from two minutes ago.
+- Sleep commands clear any pending reply for that channel.
+
+### Verification
+
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+- `./.venv/bin/python -m unittest tests.test_followup_soft_close -v`
+- Result: targeted 15-test follow-up/coalescing suite passed; compileall passed.
+
 ## 2026-06-29 — Identity-confrontation context cleanup
 
 ### Runtime behavior

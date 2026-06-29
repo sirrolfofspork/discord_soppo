@@ -195,6 +195,75 @@ class SleepCommandDetectionTests(unittest.TestCase):
                 self.assertFalse(message_is_wake_command(phrase))
 
 
+class ReplyCoalescingTests(unittest.TestCase):
+    def test_reply_queue_priority_prefers_identity_then_direct_then_followup(self):
+        from bot import SoppoBot
+
+        bot = SoppoBot(make_config())
+
+        self.assertEqual(bot._reply_queue_priority("name_alias"), 2)
+        self.assertEqual(bot._reply_queue_priority("inferred_followup"), 1)
+        self.assertEqual(bot._reply_queue_priority("spontaneous"), 0)
+        self.assertEqual(bot._reply_queue_priority("name_alias", identity_reset=True), 3)
+
+    def test_pending_reply_coalescing_keeps_latest_equal_or_higher_priority(self):
+        from bot import SoppoBot
+
+        bot = SoppoBot(make_config())
+        followup_1 = object()
+        followup_2 = object()
+        direct = object()
+        later_followup = object()
+
+        self.assertTrue(
+            bot._store_pending_reply_message(
+                channel_id=10,
+                message=followup_1,  # type: ignore[arg-type]
+                reason="inferred_followup",
+            )
+        )
+        self.assertTrue(
+            bot._store_pending_reply_message(
+                channel_id=10,
+                message=followup_2,  # type: ignore[arg-type]
+                reason="inferred_followup",
+            )
+        )
+        self.assertIs(bot._pending_reply_messages[10]["message"], followup_2)
+
+        self.assertTrue(
+            bot._store_pending_reply_message(
+                channel_id=10,
+                message=direct,  # type: ignore[arg-type]
+                reason="name_alias",
+            )
+        )
+        self.assertIs(bot._pending_reply_messages[10]["message"], direct)
+
+        self.assertFalse(
+            bot._store_pending_reply_message(
+                channel_id=10,
+                message=later_followup,  # type: ignore[arg-type]
+                reason="inferred_followup",
+            )
+        )
+        self.assertIs(bot._pending_reply_messages[10]["message"], direct)
+
+    def test_sleep_clears_pending_reply_for_channel(self):
+        from bot import SoppoBot
+
+        bot = SoppoBot(make_config())
+        bot._store_pending_reply_message(
+            channel_id=10,
+            message=object(),  # type: ignore[arg-type]
+            reason="name_alias",
+        )
+
+        bot._put_channel_to_sleep(10)
+
+        self.assertNotIn(10, bot._pending_reply_messages)
+
+
 class InferredFollowupWindowTests(unittest.TestCase):
     def test_clear_inferred_followup_window_removes_only_target_user(self):
         from bot import SoppoBot

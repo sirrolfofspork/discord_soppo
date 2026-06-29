@@ -41,6 +41,12 @@
   - Current-speaker profile fields now include username/pronouns while explicitly warning SOPPO not to adopt the speaker's identity.
   - Leva is represented as separate from SOPPO and as an older-sister figure when the current speaker profile is Leva.
 
+- [x] Add reply coalescing for slow LLM backlog control.
+  - One active reply per channel; while active, SOPPO keeps only one latest useful pending message for that channel.
+  - Priority: identity reset > direct address/mention/reply/trigger/name alias > inferred follow-up > spontaneous/ambient ignored.
+  - Newer equal-priority messages replace older ones, and direct `Sash`/`Soppo` messages outrank inferred follow-ups.
+  - Sleep commands clear pending replies for that channel.
+
 ## Ready
 
 - [ ] Tighten summary topic-boundary representation.

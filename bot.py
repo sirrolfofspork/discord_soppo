@@ -628,6 +628,9 @@ class SoppoBot(discord.Client):
         self._sleeping_channels: set[int] = set()
         # Keep slow hosted calls from piling up multiple generations at once.
         self._generation_lock = asyncio.Lock()
+        # Channel-level reply coalescing: one active reply and one latest useful pending reply per channel.
+        self._active_reply_channels: set[int] = set()
+        self._pending_reply_messages: dict[int, dict[str, Any]] = {}
 
     def _history_for(self, channel_id: int) -> deque[dict[str, Any]]:
         if channel_id not in self._history:
@@ -666,6 +669,48 @@ class SoppoBot(discord.Client):
             pending_turn_count=0,
             last_seen_message_time=float(now_wall),
         )
+
+    @staticmethod
+    def _reply_queue_priority(reason: ResponseReason | None, *, identity_reset: bool = False) -> int:
+        """Priority for coalescing pending replies while a channel generation is active."""
+        if identity_reset:
+            return 3
+        if reason in {"mention", "reply_chain", "trigger", "dm_direct", "name_alias"}:
+            return 2
+        if reason == "inferred_followup":
+            return 1
+        return 0
+
+    def _store_pending_reply_message(
+        self,
+        *,
+        channel_id: int,
+        message: discord.Message,
+        reason: ResponseReason | None,
+        identity_reset: bool = False,
+    ) -> bool:
+        """Keep only the latest useful pending reply request for a busy channel."""
+        priority = self._reply_queue_priority(reason, identity_reset=identity_reset)
+        if priority <= 0:
+            return False
+        existing = self._pending_reply_messages.get(channel_id)
+        existing_priority = int(existing.get("priority", 0)) if isinstance(existing, dict) else 0
+        if existing is not None and priority < existing_priority:
+            return False
+        self._pending_reply_messages[channel_id] = {
+            "message": message,
+            "reason": reason,
+            "priority": priority,
+            "identity_reset": identity_reset,
+        }
+        return True
+
+    def _pop_pending_reply_message(self, channel_id: int) -> discord.Message | None:
+        pending = self._pending_reply_messages.pop(channel_id, None)
+        if not isinstance(pending, dict):
+            return None
+        message = pending.get("message")
+        return message if isinstance(message, discord.Message) else message
 
     async def _maybe_regenerate_neutral_summary(
         self,
@@ -969,6 +1014,7 @@ class SoppoBot(discord.Client):
         """Mute SOPPO in this channel until an explicit wake command."""
         self._sleeping_channels.add(channel_id)
         self._clear_all_inferred_followup_windows(channel_id)
+        self._pending_reply_messages.pop(channel_id, None)
 
     def _wake_channel(self, channel_id: int) -> None:
         """Unmute SOPPO in this channel after an explicit wake command."""
@@ -1088,6 +1134,9 @@ class SoppoBot(discord.Client):
         )
 
     async def on_message(self, message: discord.Message) -> None:
+        await self._handle_message(message, coalesced=False)
+
+    async def _handle_message(self, message: discord.Message, *, coalesced: bool = False) -> None:
         self_user_id = self.user.id if self.user else None
         if self_user_id is not None and message.author.id == self_user_id:
             return
@@ -1124,6 +1173,7 @@ class SoppoBot(discord.Client):
         author_display_name = display_name_for_author(message.author)
         is_dm_channel = isinstance(message.channel, discord.DMChannel)
         now_wall = time.time()
+        reply_claimed = False
 
         if message_is_sleep_command(message.content):
             self._put_channel_to_sleep(ch_id)
@@ -1190,6 +1240,28 @@ class SoppoBot(discord.Client):
                     spontaneous_chance=self.config.spontaneous_reply_chance,
                     now_monotonic=now_mono,
                 )
+            identity_reset_candidate = bool(should and message_needs_identity_recovery(message.content))
+            if should and not coalesced and ch_id in self._active_reply_channels:
+                queued = self._store_pending_reply_message(
+                    channel_id=ch_id,
+                    message=message,
+                    reason=reason,
+                    identity_reset=identity_reset_candidate,
+                )
+                if queued:
+                    logger.info(
+                        "Coalesced pending SOPPO reply (%s) in %s while another reply is active",
+                        reason,
+                        channel_display_name,
+                    )
+                else:
+                    logger.debug(
+                        "Dropped non-useful pending SOPPO reply candidate (%s) in %s while another reply is active",
+                        reason,
+                        channel_display_name,
+                    )
+                return
+
             if not should:
                 # Still record user lines into context so the model sees the room
                 hist = self._history_for(ch_id)
@@ -1206,6 +1278,9 @@ class SoppoBot(discord.Client):
                 self._record_turn_for_neutral_summary(ch_id, turn)
                 await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
                 return
+
+            self._active_reply_channels.add(ch_id)
+            reply_claimed = True
 
             hist = self._history_for(ch_id)
             user_line = build_user_message_wrapper(author_display_name, message.content)
@@ -1401,6 +1476,12 @@ class SoppoBot(discord.Client):
             logger.info("Sent reply (%s, %d part(s)) in %s", reason, len(parts), channel_display_name)
 
         finally:
+            if reply_claimed:
+                self._active_reply_channels.discard(ch_id)
+                pending_message = self._pop_pending_reply_message(ch_id)
+                if pending_message is not None and not self._channel_is_sleeping(ch_id):
+                    logger.info("Draining latest coalesced SOPPO reply in %s", channel_display_name)
+                    asyncio.create_task(self._handle_message(pending_message, coalesced=True))
             self._touch_user_channel_activity(ch_id, uid, now_wall)
 
 
