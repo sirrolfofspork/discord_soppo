@@ -154,5 +154,128 @@ class StructuredMemoryPromptTests(unittest.TestCase):
         self.assertIn("Do not recite this block verbatim", block)
 
 
+class MemoryReviewerTests(unittest.TestCase):
+    def test_parse_memory_candidates_accepts_strict_json_and_normalizes(self):
+        from memory_reviewer import parse_memory_candidates
+
+        candidates = parse_memory_candidates(
+            '{"memories":[{"type":"user_preference","scope":"user","user_id":"111","text":"Alice prefers concise debugging replies.","importance":0.8,"confidence":0.9}]}'
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["type"], "user_preference")
+        self.assertEqual(candidates[0]["scope"], "user")
+        self.assertEqual(candidates[0]["user_id"], 111)
+
+    def test_conflicting_candidate_is_queued_instead_of_applied(self):
+        import tempfile
+        from memory_extractor import StructuredMemoryStore, user_memories_namespace
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_path = f"{tmp}/review.jsonl"
+            store_path = f"{tmp}/memory_store.json"
+            store = StructuredMemoryStore(JsonMemoryStore())
+            namespace = user_memories_namespace(111)
+            store.upsert_memory(
+                namespace,
+                memory_type="relationship_note",
+                text="For Alice, Leva is their older sister figure",
+                now_iso="2026-06-29T00:00:00Z",
+            )
+            stats = process_memory_candidates(
+                [
+                    {
+                        "type": "relationship_note",
+                        "scope": "user",
+                        "user_id": 111,
+                        "text": "For Alice, Leva is their older sister figure",
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    }
+                ],
+                store,
+                memory_store_path=store_path,
+                review_queue_path=queue_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(stats["dropped"], 1)
+            self.assertEqual(stats["queued"], 0)
+
+    def test_user_profile_overlap_is_queued_for_review(self):
+        import json
+        import tempfile
+        from memory_extractor import StructuredMemoryStore
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            profiles_path = f"{tmp}/user_profiles.json"
+            queue_path = f"{tmp}/review.jsonl"
+            store_path = f"{tmp}/memory_store.json"
+            with open(profiles_path, "w", encoding="utf-8") as f:
+                json.dump({"148": {"preferred_name": "Leva", "relationship": "older-sister figure to Sash"}}, f)
+
+            stats = process_memory_candidates(
+                [
+                    {
+                        "type": "relationship_note",
+                        "scope": "global",
+                        "text": "Leva is an older-sister figure to Sash",
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    }
+                ],
+                StructuredMemoryStore(JsonMemoryStore()),
+                memory_store_path=store_path,
+                review_queue_path=queue_path,
+                user_profiles_path=profiles_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(stats["queued"], 1)
+            with open(queue_path, "r", encoding="utf-8") as f:
+                queued = json.loads(f.readline())
+            self.assertEqual(queued["status"], "pending")
+            kinds = [conflict["kind"] for conflict in queued["conflicts"]]
+            self.assertIn("user_profile_overlap", kinds)
+
+    def test_safe_candidate_is_applied(self):
+        import tempfile
+        from memory_extractor import StructuredMemoryStore, channel_memories_namespace
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StructuredMemoryStore(JsonMemoryStore())
+            stats = process_memory_candidates(
+                [
+                    {
+                        "type": "project_fact",
+                        "scope": "channel",
+                        "text": "We are using OpenAI for neutral memory review",
+                        "importance": 0.7,
+                        "confidence": 0.92,
+                    }
+                ],
+                store,
+                memory_store_path=f"{tmp}/memory_store.json",
+                review_queue_path=f"{tmp}/review.jsonl",
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(stats["applied"], 1)
+            records = store.list_memories(channel_memories_namespace(guild_id=1, channel_id=2))
+            self.assertEqual(records[0]["source"], "api_memory_review")
+
+
 if __name__ == "__main__":
     unittest.main()

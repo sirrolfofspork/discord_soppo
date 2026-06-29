@@ -13,6 +13,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import discord
@@ -31,6 +32,7 @@ from memory import (
     apply_summary_rollover,
     build_channel_summary_block,
     build_neutral_summary_messages,
+    summarize_turns,
     trim_neutral_summary,
 )
 from memory_extractor import (
@@ -712,6 +714,63 @@ class SoppoBot(discord.Client):
         message = pending.get("message")
         return message if isinstance(message, discord.Message) else message
 
+    def _summary_backend(self) -> str:
+        return self.config.llm_backend if self.config.summary_llm_backend == "reply" else self.config.summary_llm_backend
+
+    async def _review_memory_candidates_from_summary_batch(
+        self,
+        *,
+        guild_id: int | None,
+        channel_id: int,
+        current_summary: str,
+        pending_turns: list[dict[str, Any]],
+        now_wall: float,
+    ) -> dict[str, int]:
+        """Ask the API/background reviewer for memory candidates, then locally gate writes."""
+        if not self.config.memory_review_enabled or self.config.memory_review_llm_backend == "off":
+            return {"applied": 0, "queued": 0, "dropped": 0}
+        turns_text = summarize_turns(pending_turns)
+        if not turns_text.strip():
+            return {"applied": 0, "queued": 0, "dropped": 0}
+        candidates = await propose_memory_candidates_with_llm(
+            backend=self.config.memory_review_llm_backend,
+            current_summary=current_summary,
+            new_turns_text=turns_text,
+            openai_api_key=self.config.memory_review_openai_api_key,
+            openai_model=self.config.memory_review_openai_model,
+            openai_timeout_seconds=self.config.memory_review_openai_timeout_seconds,
+            ollama_url=self.config.ollama_url,
+            ollama_model=self.config.ollama_model,
+            lmstudio_base_url=self.config.lmstudio_base_url,
+            lmstudio_api_key=self.config.lmstudio_api_key,
+            lmstudio_model=self.config.lmstudio_model,
+        )
+        if not candidates:
+            return {"applied": 0, "queued": 0, "dropped": 0}
+        stats = process_memory_candidates(
+            candidates,
+            self._structured_memory,
+            memory_store_path=self.config.memory_store_path,
+            review_queue_path=self.config.memory_review_queue_path,
+            user_profiles_path=Path(self.config.memory_store_path).with_name("user_profiles.json"),
+            guild_id=guild_id,
+            channel_id=channel_id,
+            source={
+                "guild_id": guild_id,
+                "channel_id": channel_id,
+                "reviewed_at_wall": float(now_wall),
+                "source": "neutral_summary_regeneration",
+            },
+        )
+        logger.info(
+            "Memory review completed for channel_id=%s: applied=%d queued=%d dropped=%d",
+            channel_id,
+            stats.get("applied", 0),
+            stats.get("queued", 0),
+            stats.get("dropped", 0),
+        )
+        return stats
+
     async def _maybe_regenerate_neutral_summary(
         self,
         *,
@@ -796,21 +855,29 @@ class SoppoBot(discord.Client):
         try:
             async def _generate_summary() -> str:
                 return await generate_reply(
-                    backend=cast(LLMBackend, self.config.llm_backend),
+                    backend=cast(LLMBackend, self._summary_backend()),
                     messages=summary_messages,
                     temperature=0.2,
                     top_p=0.9,
                     max_tokens=max(self.config.max_tokens, 512),
                     ollama_url=self.config.ollama_url,
                     ollama_model=self.config.ollama_model,
-                    openai_api_key=self.config.openai_api_key,
-                    openai_model=self.config.openai_model,
+                    openai_api_key=(
+                        self.config.summary_openai_api_key
+                        if self._summary_backend() == "openai"
+                        else self.config.openai_api_key
+                    ),
+                    openai_model=(
+                        self.config.summary_openai_model
+                        if self._summary_backend() == "openai"
+                        else self.config.openai_model
+                    ),
                     lmstudio_base_url=self.config.lmstudio_base_url,
                     lmstudio_api_key=self.config.lmstudio_api_key,
                     lmstudio_model=self.config.lmstudio_model,
                     timeout_seconds=(
-                        self.config.openai_timeout_seconds
-                        if self.config.llm_backend == "openai"
+                        self.config.summary_openai_timeout_seconds
+                        if self._summary_backend() == "openai"
                         else 90.0
                     ),
                 )
@@ -861,6 +928,27 @@ class SoppoBot(discord.Client):
             last_regen_status="success",
             last_regen_error="",
         )
+        try:
+            await self._review_memory_candidates_from_summary_batch(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                current_summary=clean_summary,
+                pending_turns=pending,
+                now_wall=now_wall,
+            )
+        except Exception:
+            logger.exception("Memory review failed for channel_id=%s; neutral summary was still saved", channel_id)
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_memory_review_status="error",
+            )
+        else:
+            self._channel_summary_memory.update_summary_metadata(
+                guild_id=guild_id,
+                channel_id=channel_id,
+                last_memory_review_status="success" if self.config.memory_review_enabled else "disabled",
+            )
         self._summary_last_regen_wall[channel_id] = now_wall
         self._summary_messages_since_regen[channel_id] = 0
         self._summary_pending_turns[channel_id] = []

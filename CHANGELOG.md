@@ -1,5 +1,21 @@
 # SOPPO Discord Changelog
 
+## 2026-06-29 — API-backed memory review queue
+
+### Runtime behavior
+
+- Added optional background/API clerical backends so neutral summaries and memory review can use OpenAI while live SOPPO replies stay on the configured local personality backend.
+- Added `memory_reviewer.py`: API proposes structured memory candidates, then local code checks candidate type/scope/confidence, identity/roleplay risk, existing `memory_store.json`, and ignored `user_profiles.json` before writing anything.
+- Safe non-conflicting candidates are applied to `memory_store.json` with source `api_memory_review`; exact duplicates are dropped; conflicts/risky/profile-overlap candidates go to `memory_review_queue.jsonl` for human review.
+- Added `tools/process_memory_review_queue.py` to summarize pending queue items and apply entries manually marked `approved`.
+- Added `.env.example` settings for `SUMMARY_LLM_BACKEND`, `MEMORY_REVIEW_ENABLED`, `MEMORY_REVIEW_LLM_BACKEND`, and review queue paths; `memory_review_queue.jsonl` is git-ignored.
+
+### Verification
+
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+- `./.venv/bin/python -m unittest tests.test_neutral_context_memory tests.test_structured_memory -v`
+- Result: targeted 24-test summary/memory suite passed; compileall passed.
+
 ## 2026-06-29 — Reply coalescing for slow LLM backlog control
 
 ### Runtime behavior

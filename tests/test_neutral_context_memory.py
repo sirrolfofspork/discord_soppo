@@ -80,6 +80,32 @@ class NeutralSummaryConfigTests(unittest.TestCase):
         self.assertEqual(config.max_neutral_summary_chars, 1700)
         self.assertEqual(config.summary_model_mode, "neutral")
 
+    def test_config_loads_api_background_memory_options(self):
+        from config import load_config
+
+        env = {
+            **BASE_ENV,
+            "OPENAI_API_KEY": "test-openai-key",
+            "OPENAI_MODEL": "gpt-main",
+            "SUMMARY_LLM_BACKEND": "openai",
+            "SUMMARY_OPENAI_MODEL": "gpt-summary",
+            "MEMORY_REVIEW_ENABLED": "true",
+            "MEMORY_REVIEW_LLM_BACKEND": "openai",
+            "MEMORY_REVIEW_OPENAI_MODEL": "gpt-memory",
+            "MEMORY_REVIEW_QUEUE_PATH": "custom_review.jsonl",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = load_config()
+
+        self.assertEqual(config.summary_llm_backend, "openai")
+        self.assertEqual(config.summary_openai_model, "gpt-summary")
+        self.assertEqual(config.summary_openai_api_key, "test-openai-key")
+        self.assertTrue(config.memory_review_enabled)
+        self.assertEqual(config.memory_review_llm_backend, "openai")
+        self.assertEqual(config.memory_review_openai_model, "gpt-memory")
+        self.assertEqual(config.memory_review_openai_api_key, "test-openai-key")
+        self.assertEqual(config.memory_review_queue_path, "custom_review.jsonl")
+
 
 class NeutralSummaryPromptTests(unittest.TestCase):
     def test_neutral_summarizer_prompt_excludes_soppo_persona_text(self):

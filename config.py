@@ -58,6 +58,17 @@ class Config:
     summary_regen_min_seconds: float
     max_neutral_summary_chars: int
     summary_model_mode: str
+    # Background/API clerical backends (summaries + memory review), separate from live SOPPO replies.
+    summary_llm_backend: str = "reply"  # reply | ollama | openai | lmstudio
+    summary_openai_api_key: str = ""
+    summary_openai_model: str = ""
+    summary_openai_timeout_seconds: float = 60.0
+    memory_review_enabled: bool = False
+    memory_review_llm_backend: str = "off"  # off | ollama | openai | lmstudio
+    memory_review_openai_api_key: str = ""
+    memory_review_openai_model: str = ""
+    memory_review_openai_timeout_seconds: float = 60.0
+    memory_review_queue_path: str = "memory_review_queue.jsonl"
 
 
 def _require(name: str) -> str:
@@ -254,6 +265,36 @@ def load_config() -> Config:
     if summary_model_mode != "neutral":
         raise ValueError('SUMMARY_MODEL_MODE must be "neutral".')
 
+    def _background_backend_env(name: str, default: str) -> str:
+        raw = os.getenv(name, default).strip().lower() or default
+        if raw not in ("reply", "off", "ollama", "openai", "lmstudio"):
+            raise ValueError(f'{name} must be "reply", "off", "ollama", "openai", or "lmstudio" (got {raw!r}).')
+        return raw
+
+    summary_llm_backend = _background_backend_env("SUMMARY_LLM_BACKEND", "reply")
+    if summary_llm_backend == "off":
+        raise ValueError('SUMMARY_LLM_BACKEND may not be "off"; use "reply" to reuse the live backend.')
+    summary_openai_key_raw = os.getenv("SUMMARY_OPENAI_API_KEY") or openai_api_key
+    summary_openai_api_key = str(summary_openai_key_raw).strip() if summary_openai_key_raw else ""
+    summary_openai_model = os.getenv("SUMMARY_OPENAI_MODEL", openai_model).strip() or openai_model
+    summary_openai_timeout_seconds = _float_env("SUMMARY_OPENAI_TIMEOUT_SECONDS", 60.0)
+    summary_openai_timeout_seconds = max(15.0, min(600.0, summary_openai_timeout_seconds))
+    if summary_llm_backend == "openai" and not summary_openai_api_key:
+        raise ValueError('SUMMARY_OPENAI_API_KEY or OPENAI_API_KEY is required when SUMMARY_LLM_BACKEND=openai.')
+
+    memory_review_enabled = _bool_env("MEMORY_REVIEW_ENABLED", False)
+    memory_review_llm_backend = _background_backend_env("MEMORY_REVIEW_LLM_BACKEND", "openai" if memory_review_enabled else "off")
+    if memory_review_enabled and memory_review_llm_backend == "off":
+        raise ValueError('MEMORY_REVIEW_LLM_BACKEND may not be "off" when MEMORY_REVIEW_ENABLED=true.')
+    memory_review_openai_key_raw = os.getenv("MEMORY_REVIEW_OPENAI_API_KEY") or openai_api_key
+    memory_review_openai_api_key = str(memory_review_openai_key_raw).strip() if memory_review_openai_key_raw else ""
+    memory_review_openai_model = os.getenv("MEMORY_REVIEW_OPENAI_MODEL", summary_openai_model).strip() or summary_openai_model
+    memory_review_openai_timeout_seconds = _float_env("MEMORY_REVIEW_OPENAI_TIMEOUT_SECONDS", 60.0)
+    memory_review_openai_timeout_seconds = max(15.0, min(600.0, memory_review_openai_timeout_seconds))
+    if memory_review_enabled and memory_review_llm_backend == "openai" and not memory_review_openai_api_key:
+        raise ValueError('MEMORY_REVIEW_OPENAI_API_KEY or OPENAI_API_KEY is required when MEMORY_REVIEW_LLM_BACKEND=openai.')
+    memory_review_queue_path = os.getenv("MEMORY_REVIEW_QUEUE_PATH", "memory_review_queue.jsonl").strip() or "memory_review_queue.jsonl"
+
     return Config(
         discord_bot_token=token,
         llm_backend=llm_backend,
@@ -293,6 +334,16 @@ def load_config() -> Config:
         summary_regen_min_seconds=summary_regen_min_seconds,
         max_neutral_summary_chars=max_neutral_summary_chars,
         summary_model_mode=summary_model_mode,
+        summary_llm_backend=summary_llm_backend,
+        summary_openai_api_key=summary_openai_api_key,
+        summary_openai_model=summary_openai_model,
+        summary_openai_timeout_seconds=summary_openai_timeout_seconds,
+        memory_review_enabled=memory_review_enabled,
+        memory_review_llm_backend=memory_review_llm_backend,
+        memory_review_openai_api_key=memory_review_openai_api_key,
+        memory_review_openai_model=memory_review_openai_model,
+        memory_review_openai_timeout_seconds=memory_review_openai_timeout_seconds,
+        memory_review_queue_path=memory_review_queue_path,
     )
 
 
@@ -334,4 +385,13 @@ def load_config() -> Config:
 # SUMMARY_REGEN_MIN_SECONDS — cooldown between neutral summary regenerations (default 300)
 # MAX_NEUTRAL_SUMMARY_CHARS — max chars retained in neutral channel summary (default 1800)
 # SUMMARY_MODEL_MODE        — neutral (summary calls omit SOPPO personality prompt)
+# SUMMARY_LLM_BACKEND       — reply | ollama | openai | lmstudio; default reply reuses live backend
+# SUMMARY_OPENAI_API_KEY    — optional; falls back to OPENAI_API_KEY for summary backend
+# SUMMARY_OPENAI_MODEL      — optional; falls back to OPENAI_MODEL
+# SUMMARY_OPENAI_TIMEOUT_SECONDS — timeout for OpenAI-backed summaries
+# MEMORY_REVIEW_ENABLED     — true/false; API proposes memory candidates after neutral summaries
+# MEMORY_REVIEW_LLM_BACKEND — off | ollama | openai | lmstudio; default openai when enabled
+# MEMORY_REVIEW_OPENAI_API_KEY — optional; falls back to OPENAI_API_KEY
+# MEMORY_REVIEW_OPENAI_MODEL — optional; falls back to SUMMARY_OPENAI_MODEL/OPENAI_MODEL
+# MEMORY_REVIEW_QUEUE_PATH  — JSONL queue for conflicts requiring human review
 # Character prompt           — edit prompts.build_system_prompt() in prompts.py

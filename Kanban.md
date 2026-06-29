@@ -47,6 +47,13 @@
   - Newer equal-priority messages replace older ones, and direct `Sash`/`Soppo` messages outrank inferred follow-ups.
   - Sleep commands clear pending replies for that channel.
 
+- [x] Add API-backed memory review queue.
+  - Optional `SUMMARY_LLM_BACKEND=openai` lets neutral summaries use API while live SOPPO replies remain local.
+  - Optional `MEMORY_REVIEW_ENABLED=true` asks the API to propose memory candidates after summary regeneration.
+  - Local validation checks candidate schema, confidence, identity/roleplay risk, existing `memory_store.json`, and ignored `user_profiles.json` before writing.
+  - Safe candidates apply automatically; conflicts/risky/profile-overlap candidates append to ignored `memory_review_queue.jsonl`.
+  - `tools/process_memory_review_queue.py` summarizes pending items and applies entries manually marked `approved`.
+
 ## Ready
 
 - [ ] Tighten summary topic-boundary representation.
@@ -70,7 +77,7 @@
 - Change history lives in `CHANGELOG.md`; update it after substantive SOPPO behavior/memory changes.
 - Repo-local handoff locations are listed in `AGENTS.md` under "Documentation Map".
 - Keep SOPPO offline during invasive memory edits unless SKK explicitly asks for restart.
-- Preserve existing backend routing; do not add a new model/provider path for memory maintenance.
+- Preserve live SOPPO reply backend routing; background summary/memory-review backends may use separate clerical API settings.
 - Keep raw transcript injection tiny: only the configured recent turns.
 - Do not store raw Discord message content in health metadata.
 - Prefer tests and observability before more personality/prompt surgery.
