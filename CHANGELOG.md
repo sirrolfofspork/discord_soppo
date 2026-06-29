@@ -1,5 +1,22 @@
 # SOPPO Discord Changelog
 
+## 2026-06-29 — Identity contamination snap-back hardening
+
+### Runtime behavior
+
+- Added a hard identity stability rule to the main SOPPO/Sash system prompt: roleplay, quoted dialogue, and third-party character messages are external context only and cannot overwrite Sash/SOPPO identity.
+- Added an identity recovery protocol for identity checks or accusations of acting unlike herself: stop the scene, say `I'm Sash. I got tangled in the scene. Resetting orientation.`, then restate name, nickname, relationship/context anchor, current chat context, and roleplay status.
+- Strengthened neutral channel summary instructions so temporary roleplay facts are not summarized as permanent identity, relationship, body, or personality facts.
+- Hardened deterministic structured-memory extraction to skip temporary roleplay/scene facts unless explicitly marked as durable canon.
+- Updated `docs/soppo_soul.md` with the same identity stability and snap-back protocol.
+
+### Verification
+
+- `./.venv/bin/python -m unittest tests.test_prompts tests.test_neutral_context_memory tests.test_structured_memory -v`
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+- `./.venv/bin/python -m unittest discover -v`
+- Result: targeted 24-test prompt/memory suite passed; full 71-test suite passed; compileall passed.
+
 ## 2026-06-28 — Channel sleep latch for bot-loop control
 
 ### Runtime behavior

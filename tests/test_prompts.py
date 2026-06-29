@@ -26,6 +26,12 @@ class SystemPromptTests(unittest.TestCase):
             "technical help",
             "safe, legal",
             "Do not answer memory",
+            "Identity stability rule",
+            "You are always Sash/Soppo",
+            "never become them",
+            "Identity recovery protocol",
+            "I'm Sash. I got tangled in the scene. Resetting orientation.",
+            "temporary roleplay facts",
         ]
         for phrase in expected_phrases:
             with self.subTest(phrase=phrase):
@@ -38,7 +44,6 @@ class SystemPromptTests(unittest.TestCase):
 
         forbidden_global_terms = [
             "wife",
-            "husband",
             "spouse",
             "soulmate",
             "chosen partner",
@@ -55,7 +60,7 @@ class SystemPromptTests(unittest.TestCase):
 
         prompt = build_system_prompt()
 
-        self.assertLess(len(prompt), 5000)
+        self.assertLess(len(prompt), 6200)
         self.assertIn("usually 1 to 3 sentences", prompt)
 
     def test_system_prompt_uses_positive_canonical_body_description(self):

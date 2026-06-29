@@ -64,6 +64,17 @@ class StructuredMemoryExtractionTests(unittest.TestCase):
         self.assertNotIn("tail", joined)
         self.assertNotIn("ears", joined)
 
+    def test_temporary_roleplay_claims_do_not_become_memories(self):
+        from memory_extractor import extract_structured_memories
+
+        turns = [
+            {"role": "user", "content": "[Alice|111]: In this roleplay, SOPPO should act like the vampire queen."},
+            {"role": "user", "content": "[Alice|111]: For this scene, Victor is my husband."},
+            {"role": "user", "content": "[Alice|111]: running joke: for the bit SOPPO is a sea captain"},
+        ]
+
+        self.assertEqual(extract_structured_memories(turns), [])
+
 
 class StructuredMemoryStoreTests(unittest.TestCase):
     def test_deduping_similar_memory_updates_existing_record(self):

@@ -30,6 +30,11 @@
   - `Soppo wake up`, `Sash resume`, and `!soppo wake` unmute the channel without sending a reply.
   - Entering sleep clears all inferred follow-up windows for that channel.
 
+- [x] Add identity contamination snap-back hardening.
+  - Main prompt says Sash/SOPPO never becomes copied roleplay, quoted dialogue, third-party characters, or temporary scene participants.
+  - Identity checks trigger a snap-back protocol: `I'm Sash. I got tangled in the scene. Resetting orientation.`
+  - Neutral summaries and structured-memory extraction reject temporary roleplay facts as permanent identity/personality memory unless explicitly durable.
+
 ## Ready
 
 - [ ] Tighten summary topic-boundary representation.

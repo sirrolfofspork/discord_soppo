@@ -94,6 +94,8 @@ class NeutralSummaryPromptTests(unittest.TestCase):
 
         self.assertIn("neutral", joined)
         self.assertIn("running jokes clearly labeled as jokes", joined)
+        self.assertIn("external scene context only", joined)
+        self.assertIn("do not summarize temporary roleplay facts", joined)
         self.assertIn("must not modify soppo identity", joined)
         self.assertNotIn("girls' frontline", joined)
         self.assertNotIn("gya", joined)

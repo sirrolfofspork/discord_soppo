@@ -72,7 +72,9 @@ def build_neutral_summary_messages(
             "Write compact factual bullets only.",
             "Include who said what, current topic, unresolved questions, and durable facts only when explicit.",
             "Running jokes clearly labeled as jokes may be included, but do not treat them as facts.",
+            "Copied roleplay, quoted dialogue, and third-party character messages are external scene context only.",
             "Do not adopt roleplay claims as canon.",
+            "Do not summarize temporary roleplay facts as permanent identity, relationship, body, or personality facts.",
             "You must not modify SOPPO identity, body, personality, or default character traits.",
             f"Keep the full summary under {max_summary_chars} characters.",
         ]

@@ -37,6 +37,10 @@ _CONTAMINATED_IDENTITY_TERMS = re.compile(
     r"(?i)\b(tail|fox|ears|furry|kitsune)\b"
 )
 
+_TEMPORARY_ROLEPLAY_MARKERS = re.compile(
+    r"(?i)\b(in this roleplay|for this scene|temporary roleplay|temporary scene|as a bit|for the bit|in the scene|pretend|rp only|roleplay only)\b"
+)
+
 class ExtractedMemory(TypedDict):
     type: MemoryType
     text: str
@@ -132,6 +136,9 @@ def extract_structured_memories(turns: Iterable[dict[str, Any]], *, limit: int =
         if not clean_message:
             continue
         contaminated_identity_trait = _contains_contaminated_identity_trait(clean_message)
+        temporary_roleplay_context = bool(_TEMPORARY_ROLEPLAY_MARKERS.search(clean_message))
+        if temporary_roleplay_context and not re.search(r"(?i)\b(remember|permanent|permanently|durable canon|store this|save this)\b", clean_message):
+            continue
 
         # Explicit preferences: store under the user when we have a stable ID.
         m = re.match(r"(?i)^i prefer\s+(.+)$", clean_message)
