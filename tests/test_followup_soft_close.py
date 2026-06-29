@@ -77,6 +77,63 @@ class SoftCloseDetectionTests(unittest.TestCase):
                 self.assertFalse(message_is_soft_close(phrase))
 
 
+class SleepCommandDetectionTests(unittest.TestCase):
+    def test_sleep_phrases_are_detected(self):
+        from bot import message_is_sleep_command
+
+        positives = [
+            "Soppo sleep",
+            "Soppo, go to sleep.",
+            "Sash stand down",
+            "!soppo stop replying",
+            "go quiet, Soppo",
+            "stop talking Sash",
+        ]
+        for phrase in positives:
+            with self.subTest(phrase=phrase):
+                self.assertTrue(message_is_sleep_command(phrase))
+
+    def test_sleep_detection_requires_soppo_or_sash_target(self):
+        from bot import message_is_sleep_command
+
+        negatives = [
+            "I need sleep",
+            "the channel should go quiet for a minute",
+            "Shadow stand down",
+            "please stop talking about that and explain",
+        ]
+        for phrase in negatives:
+            with self.subTest(phrase=phrase):
+                self.assertFalse(message_is_sleep_command(phrase))
+
+    def test_wake_phrases_are_detected(self):
+        from bot import message_is_wake_command
+
+        positives = [
+            "Soppo wake up",
+            "Sash, resume",
+            "!soppo wake",
+            "wake up Soppo",
+            "come back, Sash",
+        ]
+        for phrase in positives:
+            with self.subTest(phrase=phrase):
+                self.assertTrue(message_is_wake_command(phrase))
+
+    def test_wake_detection_requires_soppo_or_sash_target(self):
+        from bot import message_is_wake_command
+
+        negatives = [
+            "I need to wake up",
+            "wake up everyone",
+            "Shadow resume",
+            "online status looks good",
+        ]
+        for phrase in negatives:
+            with self.subTest(phrase=phrase):
+                self.assertFalse(message_is_wake_command(phrase))
+
+
 class InferredFollowupWindowTests(unittest.TestCase):
     def test_clear_inferred_followup_window_removes_only_target_user(self):
         from bot import SoppoBot
@@ -99,6 +156,22 @@ class InferredFollowupWindowTests(unittest.TestCase):
         bot._clear_inferred_followup_window(10, 111)
 
         self.assertNotIn(10, bot._inferred_followup_expires_at)
+
+    def test_sleeping_channel_state_clears_all_followup_windows_until_wake(self):
+        from bot import SoppoBot
+
+        bot = SoppoBot(make_config())
+        bot._refresh_inferred_followup_window(channel_id=10, user_id=111, now_wall=1000.0)
+        bot._refresh_inferred_followup_window(channel_id=10, user_id=222, now_wall=1000.0)
+
+        bot._put_channel_to_sleep(10)
+
+        self.assertTrue(bot._channel_is_sleeping(10))
+        self.assertNotIn(10, bot._inferred_followup_expires_at)
+
+        bot._wake_channel(10)
+
+        self.assertFalse(bot._channel_is_sleeping(10))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,21 @@
 # SOPPO Discord Changelog
 
+## 2026-06-28 — Channel sleep latch for bot-loop control
+
+### Runtime behavior
+
+- Added explicit sleep phrases such as `Soppo sleep`, `Soppo, go to sleep`, `Sash stand down`, and `!soppo stop replying`.
+- Sleep commands mute SOPPO for the current channel and clear all inferred follow-up windows in that channel.
+- While asleep, SOPPO ignores all messages in that channel except explicit wake phrases such as `Soppo wake up`, `Sash resume`, or `!soppo wake`.
+- Sleep and wake commands do not send Discord replies, so the guard does not add fuel to a bot loop.
+
+### Verification
+
+- `./.venv/bin/python -m unittest tests.test_followup_soft_close -v`
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+- `./.venv/bin/python -m unittest discover -v`
+- Result: targeted sleep/follow-up suite passed; full 70-test suite passed; compileall passed.
+
 ## 2026-06-20 — Newest live message priority hardening
 
 ### Runtime behavior

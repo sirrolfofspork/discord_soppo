@@ -487,13 +487,64 @@ _SOFT_CLOSE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*(?:stand down|go quiet|quiet|stop replying|stop for now|dismissed)\s*,?\s*(?:soppo|sash)?\s*[.!]*\s*$", re.IGNORECASE),
 )
 
+_SLEEP_COMMAND_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"^\s*(?:!soppo|soppo|sash)\s*[:,\-]?\s*"
+        r"(?:go to sleep|sleep|stand down|go quiet|quiet mode|stop replying|stop talking|shut down)"
+        r"\s*[.!]*\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:go to sleep|stand down|go quiet|quiet|stop replying|stop talking|shut down)"
+        r"\s*,?\s*(?:soppo|sash)\s*[.!]*\s*$",
+        re.IGNORECASE,
+    ),
+)
+
+_WAKE_COMMAND_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"^\s*(?:!soppo|soppo|sash)\s*[:,\-]?\s*"
+        r"(?:wake up|wake|resume|come back|rejoin|online)"
+        r"\s*[.!]*\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:wake up|wake|resume|come back|rejoin)"
+        r"\s*,?\s*(?:soppo|sash)\s*[.!]*\s*$",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _normalized_short_command_text(content: str, *, max_len: int = 120) -> str:
+    text = " ".join(str(content or "").strip().split())
+    if not text or len(text) > max_len:
+        return ""
+    return text
+
 
 def message_is_soft_close(content: str) -> bool:
     """True when a user is clearly closing a SOPPO-directed conversational latch."""
-    text = " ".join(str(content or "").strip().split())
-    if not text or len(text) > 80:
+    text = _normalized_short_command_text(content, max_len=80)
+    if not text:
         return False
     return any(pattern.match(text) for pattern in _SOFT_CLOSE_PATTERNS)
+
+
+def message_is_sleep_command(content: str) -> bool:
+    """True when a user explicitly tells SOPPO/Sash to sleep for this channel."""
+    text = _normalized_short_command_text(content)
+    if not text:
+        return False
+    return any(pattern.match(text) for pattern in _SLEEP_COMMAND_PATTERNS)
+
+
+def message_is_wake_command(content: str) -> bool:
+    """True when a user explicitly wakes SOPPO/Sash for this channel."""
+    text = _normalized_short_command_text(content)
+    if not text:
+        return False
+    return any(pattern.match(text) for pattern in _WAKE_COMMAND_PATTERNS)
 
 
 class SoppoBot(discord.Client):
@@ -531,6 +582,8 @@ class SoppoBot(discord.Client):
         self._last_channel_greet_mono: dict[int, float] = {}
         # channel_id -> user_id -> expires_at (time.time); sliding window after SOPPO-directed messages
         self._inferred_followup_expires_at: dict[int, dict[int, float]] = {}
+        # channel IDs muted by an explicit sleep/stand-down command until an explicit wake command.
+        self._sleeping_channels: set[int] = set()
         # Keep slow hosted calls from piling up multiple generations at once.
         self._generation_lock = asyncio.Lock()
 
@@ -844,6 +897,22 @@ class SoppoBot(discord.Client):
         if not by_ch:
             self._inferred_followup_expires_at.pop(channel_id, None)
 
+    def _clear_all_inferred_followup_windows(self, channel_id: int) -> None:
+        """Clear every inferred follow-up latch in a channel."""
+        self._inferred_followup_expires_at.pop(channel_id, None)
+
+    def _put_channel_to_sleep(self, channel_id: int) -> None:
+        """Mute SOPPO in this channel until an explicit wake command."""
+        self._sleeping_channels.add(channel_id)
+        self._clear_all_inferred_followup_windows(channel_id)
+
+    def _wake_channel(self, channel_id: int) -> None:
+        """Unmute SOPPO in this channel after an explicit wake command."""
+        self._sleeping_channels.discard(channel_id)
+
+    def _channel_is_sleeping(self, channel_id: int) -> bool:
+        return channel_id in self._sleeping_channels
+
     def _should_accept_inferred_followup(
         self,
         message: discord.Message,
@@ -991,6 +1060,22 @@ class SoppoBot(discord.Client):
         author_display_name = display_name_for_author(message.author)
         is_dm_channel = isinstance(message.channel, discord.DMChannel)
         now_wall = time.time()
+
+        if message_is_sleep_command(message.content):
+            self._put_channel_to_sleep(ch_id)
+            logger.warning(
+                "SOPPO sleep command accepted in %s; channel muted until explicit wake command",
+                channel_display_name,
+            )
+            return
+
+        if self._channel_is_sleeping(ch_id):
+            if message_is_wake_command(message.content):
+                self._wake_channel(ch_id)
+                logger.warning("SOPPO wake command accepted in %s; channel unmuted", channel_display_name)
+            else:
+                logger.debug("Ignoring message in sleeping channel %s", channel_display_name)
+            return
 
         try:
             referenced = await self._resolve_referenced_message(message)

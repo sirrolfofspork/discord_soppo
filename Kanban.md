@@ -25,6 +25,11 @@
   - Neutral summary regeneration is deferred until after SOPPO replies, so the current user turn is not folded into a system summary before it is answered.
   - Channel summaries and structured memories now say they are background only, not live requests or current conversation turns.
 
+- [x] Add channel sleep latch for bot-loop control.
+  - `Soppo sleep`, `Sash stand down`, and `!soppo stop replying` mute SOPPO in the current channel without sending a reply.
+  - `Soppo wake up`, `Sash resume`, and `!soppo wake` unmute the channel without sending a reply.
+  - Entering sleep clears all inferred follow-up windows for that channel.
+
 ## Ready
 
 - [ ] Tighten summary topic-boundary representation.
