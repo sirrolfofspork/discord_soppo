@@ -442,6 +442,28 @@ def _reserved_global_rank(record: dict[str, Any]) -> tuple[float, float, float, 
     )
 
 
+_GLOBAL_MEMORIES_PATH = "/".join(global_memories_namespace())
+
+
+def _is_dm_cross_channel_candidate_namespace(namespace_path: str) -> bool:
+    """Guild/channel structured-memory namespaces eligible for bounded DM cross-channel retrieval."""
+    if not namespace_path.endswith("/memories"):
+        return False
+    if namespace_path == _GLOBAL_MEMORIES_PATH:
+        return False
+    if namespace_path.startswith("discord/user/"):
+        return False
+    return namespace_path.startswith("discord/guild/")
+
+
+def _dm_cross_channel_candidate_namespaces(store: StructuredMemoryStore) -> list[Namespace]:
+    namespaces: list[Namespace] = []
+    for namespace_path in sorted(store.store.to_json_data().keys()):
+        if _is_dm_cross_channel_candidate_namespace(namespace_path):
+            namespaces.append(tuple(namespace_path.split("/")))
+    return namespaces
+
+
 def _append_lexical_matches(
     *,
     store: StructuredMemoryStore,
@@ -450,6 +472,7 @@ def _append_lexical_matches(
     result: list[dict[str, Any]],
     seen: set[tuple[str, str]],
     limit: int,
+    selection: str = "lexical",
 ) -> None:
     candidates: list[dict[str, Any]] = []
     for namespace in namespaces:
@@ -469,7 +492,7 @@ def _append_lexical_matches(
             continue
         seen.add(dedupe_key)
         record.pop("_score", None)
-        record["selection"] = "lexical"
+        record["selection"] = selection
         result.append(record)
 
 
@@ -544,6 +567,16 @@ def collect_relevant_structured_memories(
         seen=seen,
         limit=cap,
     )
+    if guild_id is None and len(result) < cap:
+        _append_lexical_matches(
+            store=store,
+            namespaces=_dm_cross_channel_candidate_namespaces(store),
+            query_terms=query_terms,
+            result=result,
+            seen=seen,
+            limit=cap,
+            selection="dm_cross_channel",
+        )
     if len(result) < cap:
         _append_lexical_matches(
             store=store,

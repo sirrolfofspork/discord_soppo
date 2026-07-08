@@ -1,5 +1,29 @@
 # SOPPO Discord Changelog
 
+## 2026-07-07 — Bounded DM cross-channel structured memory retrieval
+
+### Runtime behavior
+
+- In DMs only (`guild_id is None`), structured-memory retrieval may include lexically relevant guild/channel memories from other Discord channels so SKK can talk with SOPPO about friends while in DM.
+- Cross-channel DM candidates come from `discord/guild/.../memories` namespaces only; other users' `discord/user/.../memories` namespaces remain excluded, and `soppo/global/memories` still uses the existing global lexical/reserved paths.
+- Scoped current-user DM memories still fill first; cross-channel matches use remaining slots under the same small cap and lexical relevance gate.
+- Structured-memory observability logs now include `selection=dm_cross_channel` for cross-channel DM picks without logging raw memory text.
+- Guild/channel contexts outside DMs remain current-scope-first and do not pull unrelated cross-channel memories by default.
+
+### Tests and verification
+
+- Added DM cross-channel retrieval regression tests in `tests/test_structured_memory.py` for relevant friend-channel inclusion, unrelated channel exclusion, other-user privacy boundary, current-user DM memory retention, and guild-channel non-regression.
+- Verification run:
+  - `./.venv/bin/python -m unittest tests.test_structured_memory -v`
+  - Result: targeted 23-test structured-memory suite passed.
+  - `./.venv/bin/python -m unittest tests.test_field_regressions tests.test_structured_memory tests.test_memory_store -v`
+  - Result: targeted 41-test field/structured/store suite passed.
+  - `./.venv/bin/python -m unittest discover -v`
+  - Result: full 122-test suite passed.
+  - `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+  - Result: compileall passed.
+  - Runtime non-content DM smoke check against local `memory_store.json` returned only selection/type metadata.
+
 ## 2026-07-07 — Memory pruning/quarantine review mode (review-only phase)
 
 ### Tooling

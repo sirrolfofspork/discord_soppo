@@ -364,6 +364,162 @@ class StructuredMemoryRetrievalTests(unittest.TestCase):
         self.assertNotIn("Synthetic fixture memory", descriptor.values())
 
 
+class DmCrossChannelMemoryRetrievalTests(unittest.TestCase):
+    def _make_store(self):
+        from memory_extractor import StructuredMemoryStore
+        from memory_store import JsonMemoryStore
+
+        return StructuredMemoryStore(JsonMemoryStore())
+
+    def test_dm_retrieves_lexically_relevant_channel_memory_from_other_channel(self):
+        from memory_extractor import (
+            channel_memories_namespace,
+            collect_relevant_structured_memories,
+        )
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            channel_memories_namespace(guild_id=123, channel_id=456),
+            memory_type="relationship_note",
+            text="Fixture friend Alice loves debugging harness experiments",
+            importance=0.85,
+            now_iso=now,
+        )
+        store.upsert_memory(
+            channel_memories_namespace(guild_id=123, channel_id=999),
+            memory_type="project_fact",
+            text="Unrelated dinner recipe channel detail",
+            importance=0.9,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=None,
+            channel_id=777,
+            user_id=717,
+            query="tell me about Alice debugging",
+            limit=5,
+            reserved_global_slots=0,
+        )
+
+        texts = [record["text"] for record in result]
+        self.assertIn("Fixture friend Alice loves debugging harness experiments", texts)
+        self.assertNotIn("Unrelated dinner recipe channel detail", texts)
+        matched = [
+            record
+            for record in result
+            if record["text"] == "Fixture friend Alice loves debugging harness experiments"
+        ]
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0]["selection"], "dm_cross_channel")
+
+    def test_dm_excludes_other_users_user_scoped_memory_even_when_lexically_relevant(self):
+        from memory_extractor import (
+            channel_memories_namespace,
+            collect_relevant_structured_memories,
+            user_memories_namespace,
+        )
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            user_memories_namespace(111),
+            memory_type="user_preference",
+            text="Alice prefers debugging harness experiments",
+            importance=0.95,
+            now_iso=now,
+        )
+        store.upsert_memory(
+            channel_memories_namespace(guild_id=123, channel_id=456),
+            memory_type="relationship_note",
+            text="Fixture friend Alice loves debugging harness experiments",
+            importance=0.8,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=None,
+            channel_id=777,
+            user_id=717,
+            query="Alice debugging harness",
+            limit=5,
+            reserved_global_slots=0,
+        )
+
+        texts = [record["text"] for record in result]
+        self.assertNotIn("Alice prefers debugging harness experiments", texts)
+        self.assertIn("Fixture friend Alice loves debugging harness experiments", texts)
+
+    def test_dm_retrieves_current_users_user_scoped_memory(self):
+        from memory_extractor import collect_relevant_structured_memories, user_memories_namespace
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            user_memories_namespace(717),
+            memory_type="user_preference",
+            text="SKK prefers concise debugging replies",
+            importance=0.9,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=None,
+            channel_id=777,
+            user_id=717,
+            query="debugging concise replies",
+            limit=5,
+            reserved_global_slots=0,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["text"], "SKK prefers concise debugging replies")
+        self.assertEqual(result[0]["selection"], "lexical")
+
+    def test_guild_channel_retrieval_does_not_pull_unrelated_cross_channel_memories(self):
+        from memory_extractor import (
+            channel_memories_namespace,
+            collect_relevant_structured_memories,
+        )
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            channel_memories_namespace(guild_id=123, channel_id=456),
+            memory_type="project_fact",
+            text="Fixture channel 456 tests debugging harness",
+            importance=0.8,
+            now_iso=now,
+        )
+        store.upsert_memory(
+            channel_memories_namespace(guild_id=123, channel_id=999),
+            memory_type="project_fact",
+            text="Other channel private debugging detail",
+            importance=1.0,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=717,
+            query="debugging harness",
+            limit=5,
+            reserved_global_slots=0,
+        )
+
+        texts = [record["text"] for record in result]
+        self.assertIn("Fixture channel 456 tests debugging harness", texts)
+        self.assertNotIn("Other channel private debugging detail", texts)
+        selections = {record.get("selection") for record in result}
+        self.assertNotIn("dm_cross_channel", selections)
+
+
 class MemoryReviewerTests(unittest.TestCase):
     def test_parse_memory_candidates_accepts_strict_json_and_normalizes(self):
         from memory_reviewer import parse_memory_candidates
