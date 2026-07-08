@@ -1,5 +1,26 @@
 # SOPPO Discord Changelog
 
+## 2026-07-07 — Sectioned neutral channel summaries (topic-boundary phase)
+
+### Runtime behavior
+
+- Updated `build_neutral_summary_messages()` to require a stable four-section neutral summary format with exact headings: `Current topic:`, `Previous/closed topics:`, `Unresolved questions / open loops:`, and `Durable facts:`.
+- Added lightweight helpers in `memory.py` (`is_sectioned_neutral_summary()`, `annotate_sectioned_neutral_summary()`) to recognize sectioned summaries and insert brief boundary hints without fragile bullet parsing.
+- Updated `build_channel_summary_block()` to preserve sectioned boundaries, annotate closed/previous topics as background-only, and explicitly instruct the model not to re-raise closed threads when the newest live message changes topic.
+- Legacy unsectioned summaries remain backward compatible in prompt injection.
+- `tools/inspect_memory.py` now prints sectioned summaries with clearer section spacing when headings are present.
+
+### Tests and verification
+
+- Added/adjusted tests in `tests/test_neutral_context_memory.py` for exact section headings in the summarizer prompt, sectioned block boundaries, closed-topic background regression, and legacy unsectioned compatibility.
+- Verification run:
+  - `./.venv/bin/python -m unittest tests.test_neutral_context_memory -v`
+  - Result: targeted 15-test neutral-summary suite passed.
+  - `./.venv/bin/python -m unittest discover -v`
+  - Result: full 106-test suite passed.
+  - `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+  - Result: compileall passed.
+
 ## 2026-07-07 — Reserved global memory retrieval (Phase 2)
 
 ### Runtime behavior

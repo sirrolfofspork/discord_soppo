@@ -127,6 +127,33 @@ class NeutralSummaryPromptTests(unittest.TestCase):
         self.assertNotIn("gya", joined)
         self.assertNotIn("mischievous", joined)
 
+    def test_neutral_summarizer_prompt_requires_exact_section_headings(self):
+        from memory import (
+            NEUTRAL_SUMMARY_SECTION_CURRENT,
+            NEUTRAL_SUMMARY_SECTION_DURABLE,
+            NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS,
+            NEUTRAL_SUMMARY_SECTION_PREVIOUS,
+            build_neutral_summary_messages,
+        )
+
+        messages = build_neutral_summary_messages(
+            current_summary="Current topic:\n- old thread",
+            new_turns=[{"role": "user", "content": "[Bob]: new question"}],
+            max_summary_chars=1800,
+        )
+        joined = "\n".join(m["content"] for m in messages)
+
+        for heading in (
+            NEUTRAL_SUMMARY_SECTION_CURRENT,
+            NEUTRAL_SUMMARY_SECTION_PREVIOUS,
+            NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS,
+            NEUTRAL_SUMMARY_SECTION_DURABLE,
+        ):
+            self.assertIn(heading, joined)
+        self.assertIn("exact section headings", joined.lower())
+        self.assertIn("migrate it into the sectioned format", joined.lower())
+        self.assertIn("move the old current topic here", joined.lower())
+
     def test_channel_summary_block_tells_model_not_to_answer_every_summary_bullet(self):
         from memory import build_channel_summary_block
 
@@ -135,6 +162,77 @@ class NeutralSummaryPromptTests(unittest.TestCase):
         self.assertIn("background continuity", block)
         self.assertIn("Do not answer, continue, or re-raise every bullet", block)
         self.assertIn("newest live message changes topic", block)
+
+    def test_channel_summary_block_preserves_sectioned_boundaries(self):
+        from memory import (
+            NEUTRAL_SUMMARY_SECTION_CURRENT,
+            NEUTRAL_SUMMARY_SECTION_DURABLE,
+            NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS,
+            NEUTRAL_SUMMARY_SECTION_PREVIOUS,
+            build_channel_summary_block,
+        )
+
+        summary = "\n".join(
+            [
+                NEUTRAL_SUMMARY_SECTION_CURRENT,
+                "- [Alice]: asking about lunch plans",
+                NEUTRAL_SUMMARY_SECTION_PREVIOUS,
+                "- [Bob]: earlier rant about robot bodies",
+                NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS,
+                "- whether Alice still wants pizza",
+                NEUTRAL_SUMMARY_SECTION_DURABLE,
+                "- Alice prefers short replies",
+            ]
+        )
+        block = build_channel_summary_block(summary)
+
+        self.assertIn(NEUTRAL_SUMMARY_SECTION_CURRENT, block)
+        self.assertIn(NEUTRAL_SUMMARY_SECTION_PREVIOUS, block)
+        self.assertIn(NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS, block)
+        self.assertIn(NEUTRAL_SUMMARY_SECTION_DURABLE, block)
+        self.assertIn("Active thread", block)
+        self.assertIn("Closed background", block)
+        self.assertIn("- [Bob]: earlier rant about robot bodies", block)
+
+    def test_channel_summary_block_marks_closed_topics_as_background_on_topic_change(self):
+        from memory import (
+            NEUTRAL_SUMMARY_SECTION_CURRENT,
+            NEUTRAL_SUMMARY_SECTION_DURABLE,
+            NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS,
+            NEUTRAL_SUMMARY_SECTION_PREVIOUS,
+            build_channel_summary_block,
+        )
+
+        summary = "\n".join(
+            [
+                NEUTRAL_SUMMARY_SECTION_CURRENT,
+                "- [Alice]: asking about lunch plans",
+                NEUTRAL_SUMMARY_SECTION_PREVIOUS,
+                "- heated argument about robot bodies",
+                NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS,
+                "- (none)",
+                NEUTRAL_SUMMARY_SECTION_DURABLE,
+                "- (none)",
+            ]
+        )
+        block = build_channel_summary_block(summary)
+
+        self.assertIn("Previous/closed topics as closed background only", block)
+        self.assertIn("ignore Previous/closed topics and stale Current topic details", block)
+        self.assertIn("not prompts to continue old threads", block)
+        self.assertIn("heated argument about robot bodies", block)
+
+    def test_unsectioned_summary_block_remains_backward_compatible(self):
+        from memory import annotate_sectioned_neutral_summary, build_channel_summary_block, is_sectioned_neutral_summary
+
+        legacy = "- Alice asked about robots; unresolved whether repairs are done."
+        self.assertFalse(is_sectioned_neutral_summary(legacy))
+        self.assertEqual(annotate_sectioned_neutral_summary(legacy), legacy)
+
+        block = build_channel_summary_block(legacy)
+        self.assertIn(legacy, block)
+        self.assertIn("ignore stale summary details", block)
+        self.assertNotIn("Previous/closed topics as closed background only", block)
 
     def test_build_prompt_messages_order_and_recent_raw_limit(self):
         from bot import build_prompt_messages

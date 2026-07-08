@@ -10,9 +10,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from memory import NEUTRAL_SUMMARY_SECTION_HEADINGS, is_sectioned_neutral_summary
 
 SUSPICIOUS_IDENTITY_TERMS = ("tail", "fox", "ears", "furry", "kitsune")
 
@@ -25,6 +31,26 @@ def load_store(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise SystemExit("memory store root is not a JSON object")
     return data
+
+
+def format_summary_for_inspection(text: object, limit: int = 220) -> str:
+    clean = str(text or "").strip()
+    if not clean:
+        return "(empty)"
+    if not is_sectioned_neutral_summary(clean):
+        return shorten(clean, limit)
+
+    lines = clean.splitlines()
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped in NEUTRAL_SUMMARY_SECTION_HEADINGS and out and out[-1] != "":
+            out.append("")
+        out.append(stripped)
+    formatted = "\n".join(out)
+    if len(formatted) <= limit:
+        return formatted
+    return formatted[: limit - 3].rstrip() + "..."
 
 
 def shorten(text: object, limit: int = 220) -> str:
@@ -63,7 +89,7 @@ def print_summary_records(store: dict[str, Any]) -> None:
         if not is_summary_namespace(namespace):
             continue
         found = True
-        text = shorten(record.get("text", ""))
+        text = format_summary_for_inspection(record.get("text", ""))
         health_keys = [
             "mode",
             "messages_since_regen",
@@ -78,7 +104,12 @@ def print_summary_records(store: dict[str, Any]) -> None:
         health = {k: record[k] for k in health_keys if k in record}
         print(f"- namespace: {namespace}")
         print(f"  key: {key}")
-        print(f"  summary: {text or '(empty)'}")
+        if "\n" in text:
+            print("  summary:")
+            for line in text.splitlines():
+                print(f"    {line}")
+        else:
+            print(f"  summary: {text or '(empty)'}")
         if health:
             print(f"  health: {json.dumps(health, sort_keys=True)}")
     if not found:

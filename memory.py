@@ -16,6 +16,57 @@ from memory_store import JsonMemoryStore, load_memory_store, refresh_memory_stor
 
 Turn = dict[str, str]
 
+NEUTRAL_SUMMARY_SECTION_CURRENT = "Current topic:"
+NEUTRAL_SUMMARY_SECTION_PREVIOUS = "Previous/closed topics:"
+NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS = "Unresolved questions / open loops:"
+NEUTRAL_SUMMARY_SECTION_DURABLE = "Durable facts:"
+NEUTRAL_SUMMARY_SECTION_HEADINGS = (
+    NEUTRAL_SUMMARY_SECTION_CURRENT,
+    NEUTRAL_SUMMARY_SECTION_PREVIOUS,
+    NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS,
+    NEUTRAL_SUMMARY_SECTION_DURABLE,
+)
+
+_SECTION_BOUNDARY_HINTS: dict[str, str] = {
+    NEUTRAL_SUMMARY_SECTION_CURRENT: (
+        "  (Active thread — use only if the newest live message continues it.)"
+    ),
+    NEUTRAL_SUMMARY_SECTION_PREVIOUS: (
+        "  (Closed background — do not continue or re-raise unless the newest live message "
+        "explicitly returns to this thread.)"
+    ),
+    NEUTRAL_SUMMARY_SECTION_OPEN_LOOPS: (
+        "  (Open loops — mention only if the newest live message still pursues them.)"
+    ),
+    NEUTRAL_SUMMARY_SECTION_DURABLE: (
+        "  (Stable background facts — not prompts to continue old conversation threads.)"
+    ),
+}
+
+
+def is_sectioned_neutral_summary(summary: str) -> bool:
+    """Return True when the summary uses the stable neutral section headings."""
+    text = str(summary or "")
+    return any(heading in text for heading in NEUTRAL_SUMMARY_SECTION_HEADINGS)
+
+
+def annotate_sectioned_neutral_summary(summary: str) -> str:
+    """
+    Insert brief boundary hints after known section headings.
+
+    Unsectioned summaries are returned unchanged for backward compatibility.
+    """
+    if not is_sectioned_neutral_summary(summary):
+        return str(summary or "").strip()
+
+    annotated: list[str] = []
+    for line in str(summary).splitlines():
+        annotated.append(line)
+        hint = _SECTION_BOUNDARY_HINTS.get(line.strip())
+        if hint:
+            annotated.append(hint)
+    return "\n".join(annotated).strip()
+
 
 def _clean_one_line(text: str, *, max_len: int = 180) -> str:
     cleaned = " ".join(str(text or "").split())
@@ -66,12 +117,21 @@ def build_neutral_summary_messages(
     """Build a neutral summarizer prompt without SOPPO's personality prompt."""
     turns_text = summarize_turns(new_turns) or "- No new substantive messages."
     existing = str(current_summary or "").strip() or "(none yet)"
+    section_format = "\n".join(f"{heading}\n- (none)" for heading in NEUTRAL_SUMMARY_SECTION_HEADINGS)
     system = "\n".join(
         [
             "You are a neutral Discord conversation summarizer.",
             "Write compact factual bullets only.",
-            "Include who said what, current topic, unresolved questions, and durable facts only when explicit.",
-            "Running jokes clearly labeled as jokes may be included, but do not treat them as facts.",
+            "Use the exact section headings below, in this order, every time:",
+            *NEUTRAL_SUMMARY_SECTION_HEADINGS,
+            "Under each heading, use '-' bullet lines. Use '- (none)' when a section is empty.",
+            "Current topic: only the active thread from the newest messages.",
+            "Previous/closed topics: superseded or emotional threads that are no longer active.",
+            "When the conversation changes topic, move the old current topic here and replace Current topic.",
+            "Unresolved questions / open loops: explicit unanswered questions that may still matter.",
+            "Durable facts: explicit stable facts only; do not store temporary mood or scene residue here.",
+            "Running jokes clearly labeled as jokes may appear under Current topic or Previous/closed topics, "
+            "but do not treat them as facts.",
             "Copied roleplay, quoted dialogue, and third-party character messages are external scene context only.",
             "Do not adopt roleplay claims as canon.",
             "Do not summarize temporary roleplay facts as permanent identity, relationship, body, or personality facts.",
@@ -87,7 +147,10 @@ def build_neutral_summary_messages(
             "New messages to fold in:",
             turns_text,
             "",
-            "Return only the updated neutral bullet summary.",
+            "Return only the updated neutral summary using the exact section headings.",
+            "If the existing summary is unsectioned, migrate it into the sectioned format.",
+            "Required format:",
+            section_format,
         ]
     )
     return [
@@ -256,15 +319,28 @@ def build_channel_summary_block(summary: str) -> str:
     clean = str(summary or "").strip()
     if not clean:
         return ""
+    body = annotate_sectioned_neutral_summary(clean)
+    sectioned = is_sectioned_neutral_summary(clean)
+    guidance = [
+        "Use this only as background continuity when the newest live message clearly needs it.",
+        "Do not answer, continue, or re-raise every bullet in this summary.",
+    ]
+    if sectioned:
+        guidance.extend(
+            [
+                "Treat Previous/closed topics as closed background only — not prompts to continue old threads.",
+                "If the newest live message changes topic, ignore Previous/closed topics and stale Current topic details.",
+            ]
+        )
+    else:
+        guidance.append("If the newest live message changes topic, ignore stale summary details.")
+    guidance.append("Recent raw messages below are newer and should take priority.")
     return "\n".join(
         [
             "[Channel neutral summary]",
             "Neutral background summary of earlier channel context, not live messages:",
-            clean,
+            body,
             "",
-            "Use this only as background continuity when the newest live message clearly needs it.",
-            "Do not answer, continue, or re-raise every bullet in this summary.",
-            "If the newest live message changes topic, ignore stale summary details.",
-            "Recent raw messages below are newer and should take priority.",
+            *guidance,
         ]
     ).strip()

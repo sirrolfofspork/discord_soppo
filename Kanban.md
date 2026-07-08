@@ -71,11 +71,12 @@
   - Scoped memories fill first; reserved globals only use remaining slots up to the configured cap.
   - Structured-memory logs include non-content `selection` metadata (`lexical` vs `reserved_global`).
 
-## Ready
+- [x] Tighten summary topic-boundary representation.
+  - Neutral summarizer prompt requires stable section headings: current topic, previous/closed topics, unresolved questions, and durable facts.
+  - Channel summary blocks annotate section boundaries and mark closed topics as background only.
+  - Legacy unsectioned summaries remain acceptable.
 
-- [ ] Tighten summary topic-boundary representation.
-  - Summaries should explicitly mark current topic, previous/closed topics, unresolved questions, and durable facts.
-  - Goal: avoid dragging old emotional/contextual residue into fresh messages.
+## Ready
 
 - [ ] Add memory pruning/quarantine review mode.
   - Flag repeated jokes, identity/body contamination, stale relationship claims, and high-hit memories with no recent relevance.
