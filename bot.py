@@ -1448,6 +1448,7 @@ class SoppoBot(discord.Client):
                     user_id=uid,
                     query=message.content,
                     limit=5,
+                    reserved_global_slots=self.config.reserved_global_memory_slots,
                 )
                 self._log_structured_memory_retrieval(
                     channel_id=ch_id,

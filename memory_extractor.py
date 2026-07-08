@@ -255,12 +255,16 @@ def structured_memory_log_descriptor(record: dict[str, Any]) -> dict[str, str]:
     text = str(record.get("text", ""))
     key = _memory_key(memory_type, text)
     text_hash = sha1(_normalize_for_dedupe(text).encode("utf-8")).hexdigest()[:12]
-    return {
+    descriptor: dict[str, str] = {
         "type": memory_type,
         "key": key,
         "hash": text_hash,
         "source": str(record.get("source", "")),
     }
+    selection = str(record.get("selection", "")).strip()
+    if selection:
+        descriptor["selection"] = selection
+    return descriptor
 
 
 class StructuredMemoryStore:
@@ -356,6 +360,159 @@ def build_structured_memories_block(memories: Iterable[dict[str, Any]], *, limit
     return "\n".join(lines).strip()
 
 
+_RESERVED_GLOBAL_TYPE_PRIORITY: dict[str, int] = {
+    "character_note": 3,
+    "relationship_note": 2,
+    "project_fact": 1,
+    "server_fact": 1,
+    "user_preference": 0,
+    "running_joke": 0,
+}
+
+
+_MEMORY_RETRIEVAL_STOPWORDS = {
+    "and",
+    "are",
+    "but",
+    "for",
+    "from",
+    "has",
+    "have",
+    "her",
+    "him",
+    "his",
+    "how",
+    "our",
+    "she",
+    "that",
+    "the",
+    "their",
+    "them",
+    "this",
+    "tonight",
+    "was",
+    "what",
+    "when",
+    "where",
+    "who",
+    "why",
+    "with",
+    "you",
+}
+
+
+def _memory_retrieval_terms(text: str) -> set[str]:
+    return {
+        term
+        for term in re.findall(r"[a-z0-9]{3,}", str(text).lower())
+        if term not in _MEMORY_RETRIEVAL_STOPWORDS
+    }
+
+
+def _lexical_overlap_score(query_terms: set[str], record: dict[str, Any]) -> float:
+    text_terms = _memory_retrieval_terms(str(record.get("text", "")))
+    overlap = len(query_terms & text_terms)
+    if overlap <= 0:
+        return 0.0
+    return overlap * 10 + float(record.get("importance", 0.0)) + min(int(record.get("hits", 1)), 5) * 0.05
+
+
+def _eligible_reserved_global(record: dict[str, Any]) -> bool:
+    memory_type = str(record.get("type", ""))
+    importance = float(record.get("importance", 0.0))
+    confidence = float(record.get("confidence", importance))
+    type_priority = _RESERVED_GLOBAL_TYPE_PRIORITY.get(memory_type, 0)
+    if type_priority <= 0:
+        return False
+    if memory_type in ("character_note", "relationship_note"):
+        return importance >= 0.5 or confidence >= 0.75
+    return importance >= 0.75 or confidence >= 0.85
+
+
+def _reserved_global_rank(record: dict[str, Any]) -> tuple[float, float, float, int, str]:
+    memory_type = str(record.get("type", ""))
+    importance = float(record.get("importance", 0.0))
+    confidence = float(record.get("confidence", importance))
+    return (
+        float(_RESERVED_GLOBAL_TYPE_PRIORITY.get(memory_type, 0)),
+        importance,
+        confidence,
+        int(record.get("hits", 0)),
+        str(record.get("updated_at") or record.get("created_at") or ""),
+    )
+
+
+def _append_lexical_matches(
+    *,
+    store: StructuredMemoryStore,
+    namespaces: list[Namespace],
+    query_terms: set[str],
+    result: list[dict[str, Any]],
+    seen: set[tuple[str, str]],
+    limit: int,
+) -> None:
+    candidates: list[dict[str, Any]] = []
+    for namespace in namespaces:
+        for record in store.list_memories(namespace):
+            score = _lexical_overlap_score(query_terms, record)
+            if score <= 0:
+                continue
+            scored = dict(record)
+            scored["_score"] = score
+            candidates.append(scored)
+    candidates.sort(key=lambda r: float(r.get("_score", 0.0)), reverse=True)
+    for record in candidates:
+        if len(result) >= limit:
+            break
+        dedupe_key = (str(record.get("type", "")), _normalize_for_dedupe(str(record.get("text", ""))))
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        record.pop("_score", None)
+        record["selection"] = "lexical"
+        result.append(record)
+
+
+def _append_reserved_global_matches(
+    *,
+    store: StructuredMemoryStore,
+    query_terms: set[str],
+    result: list[dict[str, Any]],
+    seen: set[tuple[str, str]],
+    limit: int,
+    reserved_global_slots: int,
+) -> None:
+    if reserved_global_slots <= 0 or len(result) >= limit:
+        return
+    namespace = global_memories_namespace()
+    reserved_added = 0
+    candidates: list[dict[str, Any]] = []
+    for record in store.list_memories(namespace):
+        dedupe_key = (str(record.get("type", "")), _normalize_for_dedupe(str(record.get("text", ""))))
+        if dedupe_key in seen:
+            continue
+        text_terms = _memory_retrieval_terms(str(record.get("text", "")))
+        if query_terms & text_terms:
+            continue
+        if not _eligible_reserved_global(record):
+            continue
+        scored = dict(record)
+        scored["_reserved_rank"] = _reserved_global_rank(record)
+        candidates.append(scored)
+    candidates.sort(key=lambda r: r["_reserved_rank"], reverse=True)
+    for record in candidates:
+        if len(result) >= limit or reserved_added >= reserved_global_slots:
+            break
+        dedupe_key = (str(record.get("type", "")), _normalize_for_dedupe(str(record.get("text", ""))))
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        record.pop("_reserved_rank", None)
+        record["selection"] = "reserved_global"
+        result.append(record)
+        reserved_added += 1
+
+
 def collect_relevant_structured_memories(
     store: StructuredMemoryStore,
     *,
@@ -364,39 +521,44 @@ def collect_relevant_structured_memories(
     user_id: int,
     query: str,
     limit: int = 5,
+    reserved_global_slots: int = 2,
 ) -> list[dict[str, Any]]:
-    namespaces = [
+    query_terms = _memory_retrieval_terms(str(query))
+
+    cap = max(1, min(5, limit))
+    reserved_slots = max(0, min(5, reserved_global_slots))
+    scoped_namespaces = [
         user_memories_namespace(user_id),
         guild_memories_namespace(guild_id),
         channel_memories_namespace(guild_id=guild_id, channel_id=channel_id),
-        global_memories_namespace(),
     ]
-    records: list[dict[str, Any]] = []
-    query_terms = {t for t in re.findall(r"[a-z0-9]{3,}", str(query).lower())}
-    if not query_terms:
-        return []
-    for namespace in namespaces:
-        for record in store.list_memories(namespace):
-            text_terms = {t for t in re.findall(r"[a-z0-9]{3,}", str(record.get("text", "")).lower())}
-            overlap = len(query_terms & text_terms)
-            if overlap <= 0:
-                continue
-            scored = dict(record)
-            # Relevance comes first. Importance/hits only break ties among memories
-            # that actually match the current live message, so stale high-importance
-            # facts do not become topics SOPPO tries to answer on every turn.
-            scored["_score"] = overlap * 10 + float(record.get("importance", 0.0)) + min(int(record.get("hits", 1)), 5) * 0.05
-            records.append(scored)
-    records.sort(key=lambda r: float(r.get("_score", 0.0)), reverse=True)
     result: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-    for record in records:
-        key = (str(record.get("type", "")), _normalize_for_dedupe(str(record.get("text", ""))))
-        if key in seen:
-            continue
-        seen.add(key)
-        record.pop("_score", None)
-        result.append(record)
-        if len(result) >= max(1, min(5, limit)):
-            break
+
+    # User/guild/channel lexical matches fill first so reserved globals cannot crowd them out.
+    _append_lexical_matches(
+        store=store,
+        namespaces=scoped_namespaces,
+        query_terms=query_terms,
+        result=result,
+        seen=seen,
+        limit=cap,
+    )
+    if len(result) < cap:
+        _append_lexical_matches(
+            store=store,
+            namespaces=[global_memories_namespace()],
+            query_terms=query_terms,
+            result=result,
+            seen=seen,
+            limit=cap,
+        )
+    _append_reserved_global_matches(
+        store=store,
+        query_terms=query_terms,
+        result=result,
+        seen=seen,
+        limit=cap,
+        reserved_global_slots=reserved_slots,
+    )
     return result

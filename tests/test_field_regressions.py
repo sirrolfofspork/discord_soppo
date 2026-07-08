@@ -133,5 +133,22 @@ class OpenAITimeoutConfigTests(unittest.TestCase):
         self.assertEqual(config.openai_timeout_seconds, 37.5)
 
 
+class ReservedGlobalMemoryConfigTests(unittest.TestCase):
+    def test_reserved_global_memory_slots_is_configurable_and_clamped(self):
+        from config import load_config
+
+        with patch.dict(os.environ, {**BASE_ENV, "RESERVED_GLOBAL_MEMORY_SLOTS": "4"}, clear=True):
+            config = load_config()
+        self.assertEqual(config.reserved_global_memory_slots, 4)
+
+        with patch.dict(os.environ, {**BASE_ENV, "RESERVED_GLOBAL_MEMORY_SLOTS": "99"}, clear=True):
+            config = load_config()
+        self.assertEqual(config.reserved_global_memory_slots, 5)
+
+        with patch.dict(os.environ, {**BASE_ENV, "RESERVED_GLOBAL_MEMORY_SLOTS": "-10"}, clear=True):
+            config = load_config()
+        self.assertEqual(config.reserved_global_memory_slots, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

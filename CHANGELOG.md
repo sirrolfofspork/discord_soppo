@@ -1,5 +1,25 @@
 # SOPPO Discord Changelog
 
+## 2026-07-07 — Reserved global memory retrieval (Phase 2)
+
+### Runtime behavior
+
+- Added configurable `RESERVED_GLOBAL_MEMORY_SLOTS` (default 2, clamped 0–5) so a bounded set of high-value global identity/canon memories can be injected without lexical overlap with the newest live user message.
+- Kept lexical relevance gating for user/guild/channel memories and normal global overflow; scoped memories are selected before reserved globals consume remaining slots.
+- Reserved global selection ranks by type priority (`character_note` / `relationship_note` / `project_fact`), importance, confidence, hits, and `updated_at`.
+- Structured-memory observability logs now include non-content `selection` metadata (`lexical` vs `reserved_global`) without logging raw memory text.
+
+### Tests and verification
+
+- Added Phase 2 retrieval regression tests in `tests/test_structured_memory.py` for lexical exclusion, reserved-slot inclusion, slot caps, scoped-memory anti-crowding, and stopword-only identity probes.
+- Verification run:
+  - `./.venv/bin/python -m unittest tests.test_structured_memory tests.test_field_regressions tests.test_memory_store -v`
+  - Result: targeted 37-test structured-memory/field/store suite passed.
+  - `./.venv/bin/python -m unittest discover -v`
+  - Result: full 102-test suite passed.
+  - `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+  - Result: compileall passed.
+
 ## 2026-07-07 — Curated JSONL import converter (Phase 1+)
 
 ### Tooling

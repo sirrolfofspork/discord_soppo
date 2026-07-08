@@ -65,6 +65,12 @@
   - Maps `memory_text` → candidate text, category → conservative candidate type, preserves source audit metadata, and uses stable dedup-safe item IDs.
   - Refuses to overwrite existing output unless `--force`; never writes directly to `memory_store.json`.
 
+- [x] Phase 2 reserved global memory retrieval.
+  - Configurable `RESERVED_GLOBAL_MEMORY_SLOTS` (default 2, clamped 0–5) injects a bounded set of high-value global identity/canon memories without lexical overlap.
+  - Lexical relevance gating remains for user/guild/channel memories and normal global overflow.
+  - Scoped memories fill first; reserved globals only use remaining slots up to the configured cap.
+  - Structured-memory logs include non-content `selection` metadata (`lexical` vs `reserved_global`).
+
 ## Ready
 
 - [ ] Tighten summary topic-boundary representation.

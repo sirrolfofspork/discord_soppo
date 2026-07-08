@@ -154,6 +154,216 @@ class StructuredMemoryPromptTests(unittest.TestCase):
         self.assertIn("Do not recite this block verbatim", block)
 
 
+class StructuredMemoryRetrievalTests(unittest.TestCase):
+    def _make_store(self):
+        from memory_extractor import StructuredMemoryStore
+        from memory_store import JsonMemoryStore
+
+        return StructuredMemoryStore(JsonMemoryStore())
+
+    def test_low_importance_global_excluded_without_lexical_overlap(self):
+        from memory_extractor import collect_relevant_structured_memories, global_memories_namespace
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            global_memories_namespace(),
+            memory_type="project_fact",
+            text="Synthetic alpha project detail for fixture testing",
+            importance=0.4,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=9,
+            query="what is for dinner tonight",
+            limit=5,
+            reserved_global_slots=2,
+        )
+
+        self.assertEqual(result, [])
+
+    def test_high_importance_global_identity_included_via_reserved_slot(self):
+        from memory_extractor import collect_relevant_structured_memories, global_memories_namespace
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.store.put_memory(
+            global_memories_namespace(),
+            "mem_fixture_identity",
+            {
+                "type": "character_note",
+                "text": "Synthetic identity anchor for fixture testing",
+                "importance": 0.95,
+                "confidence": 0.92,
+                "source": "test_fixture",
+                "created_at": now,
+                "updated_at": now,
+                "last_seen_at": now,
+                "hits": 3,
+            },
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=9,
+            query="what is for dinner tonight",
+            limit=5,
+            reserved_global_slots=2,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["selection"], "reserved_global")
+        self.assertEqual(result[0]["type"], "character_note")
+
+    def test_reserved_globals_do_not_exceed_configured_slot_count(self):
+        from memory_extractor import collect_relevant_structured_memories, global_memories_namespace
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        for idx, importance in enumerate((0.95, 0.9, 0.85), start=1):
+            store.store.put_memory(
+                global_memories_namespace(),
+                f"mem_fixture_reserved_{idx}",
+                {
+                    "type": "character_note",
+                    "text": f"Synthetic reserved global fixture item {idx}",
+                    "importance": importance,
+                    "confidence": 0.9,
+                    "source": "test_fixture",
+                    "created_at": now,
+                    "updated_at": now,
+                    "last_seen_at": now,
+                    "hits": idx,
+                },
+            )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=9,
+            query="unrelated dinner chatter",
+            limit=5,
+            reserved_global_slots=2,
+        )
+
+        reserved = [record for record in result if record.get("selection") == "reserved_global"]
+        self.assertEqual(len(reserved), 2)
+
+    def test_scoped_memories_are_not_crowded_out_by_reserved_globals(self):
+        from memory_extractor import (
+            channel_memories_namespace,
+            collect_relevant_structured_memories,
+            global_memories_namespace,
+            user_memories_namespace,
+        )
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            user_memories_namespace(9),
+            memory_type="user_preference",
+            text="Fixture user prefers concise debugging replies",
+            importance=0.9,
+            now_iso=now,
+        )
+        store.upsert_memory(
+            channel_memories_namespace(guild_id=123, channel_id=456),
+            memory_type="project_fact",
+            text="Fixture channel tests debugging harness",
+            importance=0.8,
+            now_iso=now,
+        )
+        for idx in range(1, 4):
+            store.store.put_memory(
+                global_memories_namespace(),
+                f"mem_fixture_global_{idx}",
+                {
+                    "type": "character_note",
+                    "text": f"Synthetic reserved global fixture overflow {idx}",
+                    "importance": 0.99,
+                    "confidence": 0.95,
+                    "source": "test_fixture",
+                    "created_at": now,
+                    "updated_at": now,
+                    "last_seen_at": now,
+                    "hits": idx,
+                },
+            )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=9,
+            query="debugging concise harness",
+            limit=4,
+            reserved_global_slots=2,
+        )
+
+        texts = [record["text"] for record in result]
+        self.assertIn("Fixture user prefers concise debugging replies", texts)
+        self.assertIn("Fixture channel tests debugging harness", texts)
+        reserved = [record for record in result if record.get("selection") == "reserved_global"]
+        self.assertLessEqual(len(reserved), 2)
+        self.assertLessEqual(len(result), 4)
+
+    def test_stopword_only_query_can_still_use_reserved_identity_slot(self):
+        from memory_extractor import collect_relevant_structured_memories, global_memories_namespace
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.store.put_memory(
+            global_memories_namespace(),
+            "mem_fixture_stopword_identity",
+            {
+                "type": "character_note",
+                "text": "Synthetic canonical identity anchor",
+                "importance": 0.96,
+                "confidence": 0.94,
+                "source": "test_fixture",
+                "created_at": now,
+                "updated_at": now,
+                "last_seen_at": now,
+                "hits": 2,
+            },
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=9,
+            query="who are you",
+            limit=5,
+            reserved_global_slots=1,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["selection"], "reserved_global")
+
+    def test_log_descriptor_includes_selection_metadata(self):
+        from memory_extractor import structured_memory_log_descriptor
+
+        descriptor = structured_memory_log_descriptor(
+            {
+                "type": "character_note",
+                "text": "Synthetic fixture memory",
+                "source": "test_fixture",
+                "selection": "reserved_global",
+            }
+        )
+
+        self.assertEqual(descriptor["selection"], "reserved_global")
+        self.assertNotIn("Synthetic fixture memory", descriptor.values())
+
+
 class MemoryReviewerTests(unittest.TestCase):
     def test_parse_memory_candidates_accepts_strict_json_and_normalizes(self):
         from memory_reviewer import parse_memory_candidates

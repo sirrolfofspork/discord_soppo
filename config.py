@@ -69,6 +69,7 @@ class Config:
     memory_review_openai_model: str = ""
     memory_review_openai_timeout_seconds: float = 60.0
     memory_review_queue_path: str = "memory_review_queue.jsonl"
+    reserved_global_memory_slots: int = 2
 
 
 def _require(name: str) -> str:
@@ -295,6 +296,9 @@ def load_config() -> Config:
         raise ValueError('MEMORY_REVIEW_OPENAI_API_KEY or OPENAI_API_KEY is required when MEMORY_REVIEW_LLM_BACKEND=openai.')
     memory_review_queue_path = os.getenv("MEMORY_REVIEW_QUEUE_PATH", "memory_review_queue.jsonl").strip() or "memory_review_queue.jsonl"
 
+    reserved_global_memory_slots = _int_env("RESERVED_GLOBAL_MEMORY_SLOTS", 2)
+    reserved_global_memory_slots = max(0, min(5, reserved_global_memory_slots))
+
     return Config(
         discord_bot_token=token,
         llm_backend=llm_backend,
@@ -344,6 +348,7 @@ def load_config() -> Config:
         memory_review_openai_model=memory_review_openai_model,
         memory_review_openai_timeout_seconds=memory_review_openai_timeout_seconds,
         memory_review_queue_path=memory_review_queue_path,
+        reserved_global_memory_slots=reserved_global_memory_slots,
     )
 
 
@@ -394,4 +399,5 @@ def load_config() -> Config:
 # MEMORY_REVIEW_OPENAI_API_KEY — optional; falls back to OPENAI_API_KEY
 # MEMORY_REVIEW_OPENAI_MODEL — optional; falls back to SUMMARY_OPENAI_MODEL/OPENAI_MODEL
 # MEMORY_REVIEW_QUEUE_PATH  — JSONL queue for conflicts requiring human review
+# RESERVED_GLOBAL_MEMORY_SLOTS — high-value global identity/canon slots without lexical overlap (default 2, 0–5)
 # Character prompt           — edit prompts.build_system_prompt() in prompts.py
