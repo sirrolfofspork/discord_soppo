@@ -1,3 +1,4 @@
+import asyncio
 from collections import deque
 import os
 import unittest
@@ -130,6 +131,56 @@ class ChannelSummaryMemoryTests(unittest.TestCase):
             store.get_memory(("discord", "dm", "channel", "456", "summary"), "current"),
             {"text": "- DM detail"},
         )
+
+    def test_dm_summary_metadata_uses_dm_namespace_and_omits_raw_turn_text(self):
+        from memory import ChannelSummaryMemory
+        from memory_store import JsonMemoryStore
+
+        store = JsonMemoryStore()
+        memory = ChannelSummaryMemory(store)
+        memory.update_summary_metadata(
+            guild_id=None,
+            channel_id=456,
+            messages_since_regen=1,
+            pending_turn_count=1,
+            last_seen_message_time=123.0,
+            last_regen_status="waiting_threshold",
+        )
+
+        record = store.get_memory(("discord", "dm", "channel", "456", "summary"), "current")
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(record["messages_since_regen"], 1)
+        self.assertEqual(record["pending_turn_count"], 1)
+        self.assertEqual(record["last_regen_status"], "waiting_threshold")
+        self.assertNotIn("text", record)
+        self.assertNotIn("private DM turn", str(record))
+
+    def test_dm_summary_deferred_below_threshold_persists_health_metadata(self):
+        from bot import SoppoBot
+        from tests.test_neutral_context_memory import make_config
+
+        bot = SoppoBot(make_config(summary_regen_message_count=3, summary_regen_min_seconds=0.0))
+        bot._record_turn_for_neutral_summary(
+            456,
+            {"role": "user", "content": "private DM turn that must not persist in metadata"},
+        )
+
+        regenerated = asyncio.run(
+            bot._maybe_regenerate_neutral_summary(channel_id=456, guild_id=None, now_wall=321.0)
+        )
+
+        self.assertFalse(regenerated)
+        record = bot._channel_summary_memory.store.get_memory(
+            ("discord", "dm", "channel", "456", "summary"), "current"
+        )
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(record["messages_since_regen"], 1)
+        self.assertEqual(record["pending_turn_count"], 1)
+        self.assertEqual(record["last_seen_message_time"], 321.0)
+        self.assertEqual(record["last_regen_status"], "waiting_threshold")
+        self.assertNotIn("private DM turn", str(record))
 
 
 class PromptAssemblyOrderingTests(unittest.TestCase):

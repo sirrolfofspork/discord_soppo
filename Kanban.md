@@ -82,12 +82,12 @@
   - `tools/review_memory_pruning.py` flags duplicate/near-duplicate records, identity/body contamination, stale relationship claims, high-hit generic/over-trigger records, and scene/joke residue in durable facts.
   - Review-only output for SKK/Leva; no auto-delete or store mutation.
 
-- [ ] Add per-user memory retrieval regression tests.
+- [x] Add per-user memory retrieval regression tests.
   - Ensure only the current speaker's user-scoped memories are injected.
   - Ensure other users' memories are not exposed or used.
-  - Partial coverage added via DM cross-channel retrieval tests in `tests/test_structured_memory.py`.
+  - Dedicated coverage added via `PerUserMemoryRetrievalBoundaryTests` in `tests/test_structured_memory.py`.
 
-- [ ] Add DM memory health tests.
+- [x] Add DM memory health tests.
   - Verify DM summary namespaces and metadata behavior.
   - Verify deferred summary state when fewer than the threshold number of DM turns exist.
   - Verify intentional bounded cross-channel structured-memory retrieval in DMs (not strict DM isolation): relevant guild/channel friend memories may surface; other users' user-scoped memories must not.

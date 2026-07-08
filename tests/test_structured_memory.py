@@ -520,6 +520,121 @@ class DmCrossChannelMemoryRetrievalTests(unittest.TestCase):
         self.assertNotIn("dm_cross_channel", selections)
 
 
+class PerUserMemoryRetrievalBoundaryTests(unittest.TestCase):
+    def _make_store(self):
+        from memory_extractor import StructuredMemoryStore
+        from memory_store import JsonMemoryStore
+
+        return StructuredMemoryStore(JsonMemoryStore())
+
+    def test_guild_retrieval_uses_only_current_speakers_user_namespace(self):
+        from memory_extractor import collect_relevant_structured_memories, user_memories_namespace
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            user_memories_namespace(717),
+            memory_type="user_preference",
+            text="Current speaker prefers compact debugger notes",
+            importance=0.9,
+            now_iso=now,
+        )
+        store.upsert_memory(
+            user_memories_namespace(111),
+            memory_type="user_preference",
+            text="Other speaker prefers compact debugger notes",
+            importance=1.0,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=717,
+            query="compact debugger notes",
+            limit=5,
+            reserved_global_slots=0,
+        )
+
+        texts = [record["text"] for record in result]
+        self.assertIn("Current speaker prefers compact debugger notes", texts)
+        self.assertNotIn("Other speaker prefers compact debugger notes", texts)
+        self.assertEqual({record.get("selection") for record in result}, {"lexical"})
+
+    def test_dm_retrieval_uses_only_current_speakers_user_namespace(self):
+        from memory_extractor import collect_relevant_structured_memories, user_memories_namespace
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            user_memories_namespace(717),
+            memory_type="user_preference",
+            text="Current DM speaker tracks avionics diagnostics",
+            importance=0.9,
+            now_iso=now,
+        )
+        store.upsert_memory(
+            user_memories_namespace(111),
+            memory_type="user_preference",
+            text="Other DM speaker tracks avionics diagnostics",
+            importance=1.0,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=None,
+            channel_id=777,
+            user_id=717,
+            query="avionics diagnostics",
+            limit=5,
+            reserved_global_slots=0,
+        )
+
+        texts = [record["text"] for record in result]
+        self.assertIn("Current DM speaker tracks avionics diagnostics", texts)
+        self.assertNotIn("Other DM speaker tracks avionics diagnostics", texts)
+
+    def test_user_namespace_privacy_holds_when_global_memory_also_matches(self):
+        from memory_extractor import (
+            collect_relevant_structured_memories,
+            global_memories_namespace,
+            user_memories_namespace,
+        )
+
+        store = self._make_store()
+        now = "2026-07-07T12:00:00Z"
+        store.upsert_memory(
+            user_memories_namespace(111),
+            memory_type="user_preference",
+            text="Other user private flight sim calibration detail",
+            importance=1.0,
+            now_iso=now,
+        )
+        store.upsert_memory(
+            global_memories_namespace(),
+            memory_type="project_fact",
+            text="Shared flight sim calibration project context",
+            importance=0.8,
+            now_iso=now,
+        )
+
+        result = collect_relevant_structured_memories(
+            store,
+            guild_id=123,
+            channel_id=456,
+            user_id=717,
+            query="flight sim calibration",
+            limit=5,
+            reserved_global_slots=0,
+        )
+
+        texts = [record["text"] for record in result]
+        self.assertIn("Shared flight sim calibration project context", texts)
+        self.assertNotIn("Other user private flight sim calibration detail", texts)
+
+
 class MemoryReviewerTests(unittest.TestCase):
     def test_parse_memory_candidates_accepts_strict_json_and_normalizes(self):
         from memory_reviewer import parse_memory_candidates

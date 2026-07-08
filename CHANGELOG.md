@@ -1,5 +1,25 @@
 # SOPPO Discord Changelog
 
+## 2026-07-07 — Final memory regression coverage
+
+### Test hardening
+
+- Added dedicated per-user structured-memory retrieval regression tests covering guild and DM contexts.
+- Verified retrieval only uses the current speaker's `discord/user/.../memories` namespace while still allowing shared/global memories to match normally.
+- Added DM summary-health regressions for `discord/dm/channel/.../summary` namespace writes, deferred-below-threshold metadata, and no raw DM turn content persisted in health records.
+- Marked the remaining memory-improvement Kanban test phases complete.
+
+### Verification
+
+- `./.venv/bin/python -m unittest tests.test_structured_memory tests.test_channel_memory -v`
+- Result: targeted 36-test structured/channel-memory suite passed.
+- `./.venv/bin/python -m unittest discover -v`
+- Result: full 127-test suite passed.
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+- Result: compileall passed.
+- `git diff --check`
+- Result: clean.
+
 ## 2026-07-07 — Bounded DM cross-channel structured memory retrieval
 
 ### Runtime behavior
