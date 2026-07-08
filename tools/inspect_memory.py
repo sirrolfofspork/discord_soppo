@@ -19,18 +19,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from memory import NEUTRAL_SUMMARY_SECTION_HEADINGS, is_sectioned_neutral_summary
+from tools.memory_inspect_common import (
+    iter_records,
+    is_structured_memory_namespace,
+    load_store,
+    shorten as common_shorten,
+    suspicious_identity_terms,
+)
 
-SUSPICIOUS_IDENTITY_TERMS = ("tail", "fox", "ears", "furry", "kitsune")
+
+def is_summary_namespace(namespace: str) -> bool:
+    return namespace.endswith("/summary")
 
 
-def load_store(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise SystemExit(f"memory store not found: {path}")
-    with path.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    if not isinstance(data, dict):
-        raise SystemExit("memory store root is not a JSON object")
-    return data
+def shorten(text: object, limit: int = 220) -> str:
+    return common_shorten(text, limit)
 
 
 def format_summary_for_inspection(text: object, limit: int = 220) -> str:
@@ -51,35 +54,6 @@ def format_summary_for_inspection(text: object, limit: int = 220) -> str:
     if len(formatted) <= limit:
         return formatted
     return formatted[: limit - 3].rstrip() + "..."
-
-
-def shorten(text: object, limit: int = 220) -> str:
-    clean = " ".join(str(text or "").split())
-    if len(clean) <= limit:
-        return clean
-    return clean[: limit - 3].rstrip() + "..."
-
-
-def is_summary_namespace(namespace: str) -> bool:
-    return namespace.endswith("/summary")
-
-
-def is_structured_memory_namespace(namespace: str) -> bool:
-    return namespace.endswith("/memories")
-
-
-def suspicious_terms(text: str) -> list[str]:
-    lower = text.lower()
-    return [term for term in SUSPICIOUS_IDENTITY_TERMS if term in lower]
-
-
-def iter_records(store: dict[str, Any]):
-    for namespace, records in sorted(store.items()):
-        if not isinstance(records, dict):
-            continue
-        for key, record in sorted(records.items()):
-            if isinstance(record, dict):
-                yield namespace, key, record
 
 
 def print_summary_records(store: dict[str, Any]) -> None:
@@ -130,7 +104,7 @@ def print_structured_memories(store: dict[str, Any]) -> None:
         text = str(record.get("text", ""))
         hits = int(record.get("hits", 0) or 0)
         type_counts[memory_type] += 1
-        terms = suspicious_terms(text)
+        terms = suspicious_identity_terms(text)
         if terms:
             suspicious.append((namespace, key, terms, shorten(text)))
         if hits >= 5:
@@ -170,7 +144,12 @@ def main() -> int:
     )
     args = parser.parse_args()
     path = Path(args.path)
-    store = load_store(path)
+    try:
+        store = load_store(path)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     namespace_count = len(store)
     record_count = sum(1 for _ in iter_records(store))
     print(f"memory_store: {path}")

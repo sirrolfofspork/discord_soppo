@@ -1,5 +1,26 @@
 # SOPPO Discord Changelog
 
+## 2026-07-07 — Memory pruning/quarantine review mode (review-only phase)
+
+### Tooling
+
+- Added `tools/review_memory_pruning.py` to scan structured memories in `memory_store.json` and flag review candidates without writing changes.
+- Added shared helpers in `tools/memory_inspect_common.py`; `tools/inspect_memory.py` now imports the shared load/iterate/shorten/identity-term helpers.
+- Review flags include: namespace/global near-duplicates, identity/body contamination terms, stale `relationship_note` records, high-hit generic/over-trigger records, and scene/joke residue stored as durable facts.
+- CLI supports default text output with reason counts plus compact candidate lines, and `--json` for machine-readable review output.
+
+### Tests and verification
+
+- Added `tests/test_memory_pruning_review.py` with synthetic store fixtures covering all review flags, stable candidate schema, CLI `--json` output, and no-mutation guarantees.
+- Verification run:
+  - `./.venv/bin/python -m unittest tests.test_memory_pruning_review -v`
+  - Result: targeted 12-test pruning-review suite passed.
+  - `./.venv/bin/python -m unittest discover -v`
+  - Result: full 118-test suite passed.
+  - `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+  - Result: compileall passed.
+  - Runtime dry-run against local `memory_store.json` reported 17 candidates by metadata only and confirmed the store hash was unchanged.
+
 ## 2026-07-07 — Sectioned neutral channel summaries (topic-boundary phase)
 
 ### Runtime behavior

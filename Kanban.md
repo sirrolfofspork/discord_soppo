@@ -78,9 +78,9 @@
 
 ## Ready
 
-- [ ] Add memory pruning/quarantine review mode.
-  - Flag repeated jokes, identity/body contamination, stale relationship claims, and high-hit memories with no recent relevance.
-  - Do not auto-delete on first pass; produce review output for SKK/Leva.
+- [x] Add memory pruning/quarantine review mode.
+  - `tools/review_memory_pruning.py` flags duplicate/near-duplicate records, identity/body contamination, stale relationship claims, high-hit generic/over-trigger records, and scene/joke residue in durable facts.
+  - Review-only output for SKK/Leva; no auto-delete or store mutation.
 
 - [ ] Add per-user memory retrieval regression tests.
   - Ensure only the current speaker's user-scoped memories are injected.
