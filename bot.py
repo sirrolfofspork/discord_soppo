@@ -43,6 +43,7 @@ from memory_extractor import (
     extract_structured_memories,
     global_memories_namespace,
     guild_memories_namespace,
+    structured_memory_log_descriptor,
     user_memories_namespace,
 )
 from memory_store import save_memory_store
@@ -1014,6 +1015,31 @@ class SoppoBot(discord.Client):
         logger.debug("Extracted %d structured memory item(s) for channel_id=%s", stored, channel_id)
         return stored
 
+    def _log_structured_memory_retrieval(
+        self,
+        *,
+        channel_id: int,
+        user_id: int,
+        guild_id: int | None,
+        memories: list[dict[str, Any]],
+    ) -> None:
+        """Log structured-memory injection metadata without raw Discord or memory text."""
+        namespace_prefixes = [
+            "/".join(user_memories_namespace(user_id)),
+            "/".join(guild_memories_namespace(guild_id)),
+            "/".join(channel_memories_namespace(guild_id=guild_id, channel_id=channel_id)),
+            "/".join(global_memories_namespace()),
+        ]
+        descriptors = [structured_memory_log_descriptor(record) for record in memories if isinstance(record, dict)]
+        logger.info(
+            "Structured memory retrieval channel_id=%s user_id=%s count=%d namespaces=%s items=%s",
+            channel_id,
+            user_id,
+            len(descriptors),
+            namespace_prefixes,
+            descriptors,
+        )
+
     def _get_user_profile(self, user_id: int) -> dict[str, Any] | None:
         """Return the profile dict for this Discord user ID, or None if unknown."""
         return self._user_profiles.get(str(user_id))
@@ -1411,6 +1437,7 @@ class SoppoBot(discord.Client):
                 add_returning_hint = False
                 returning_hint = build_identity_reset_context(speaker_profile=profile)
             else:
+                self._channel_summary_memory.reload_from_disk()
                 channel_summary_block = build_channel_summary_block(
                     self._channel_summary_memory.get_summary(guild_id=guild_id, channel_id=ch_id)
                 )
@@ -1421,6 +1448,12 @@ class SoppoBot(discord.Client):
                     user_id=uid,
                     query=message.content,
                     limit=5,
+                )
+                self._log_structured_memory_retrieval(
+                    channel_id=ch_id,
+                    user_id=uid,
+                    guild_id=guild_id,
+                    memories=structured_memories,
                 )
                 channel_memory_block = build_structured_memories_block(
                     structured_memories,

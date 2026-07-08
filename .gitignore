@@ -33,8 +33,12 @@ wheels/
 .installed.cfg
 *.egg
 memory_store.json
+memory_store.json.lock
 memory_review_queue.jsonl
+memory_import_queue*.jsonl
 user_profiles.json
+nul*
+
 
 gittoken
 gittoken.txt

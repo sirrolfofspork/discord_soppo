@@ -54,6 +54,17 @@
   - Safe candidates apply automatically; conflicts/risky/profile-overlap candidates append to ignored `memory_review_queue.jsonl`.
   - `tools/process_memory_review_queue.py` summarizes pending items and applies entries manually marked `approved`.
 
+- [x] Phase 1 memory store write safety and observability.
+  - `memory_store.json` saves are merge-safe and flock-locked so summary metadata writes do not erase externally added `soppo/global/memories` or `discord/user/.../memories`.
+  - `PersistentChannelSummaryMemory.reload_from_disk()` refreshes in-memory state before structured retrieval.
+  - Bot logs structured-memory injection count plus type/key/hash metadata without raw Discord or memory text.
+  - `tools/process_memory_review_queue.py --apply-approved` refuses when `soppo-discord.service` is active unless `--force` is supplied.
+
+- [x] Phase 1+ curated JSONL import converter.
+  - `tools/import_memory_candidates.py` converts curated import JSONL into pending `memory_review_queue.jsonl` items for manual review/apply.
+  - Maps `memory_text` → candidate text, category → conservative candidate type, preserves source audit metadata, and uses stable dedup-safe item IDs.
+  - Refuses to overwrite existing output unless `--force`; never writes directly to `memory_store.json`.
+
 ## Ready
 
 - [ ] Tighten summary topic-boundary representation.

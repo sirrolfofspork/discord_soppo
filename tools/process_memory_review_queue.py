@@ -17,8 +17,9 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import subprocess
 import sys
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -26,6 +27,8 @@ sys.path.insert(0, str(ROOT))
 from memory_extractor import StructuredMemoryStore  # noqa: E402
 from memory_reviewer import apply_safe_candidate  # noqa: E402
 from memory_store import load_memory_store, save_memory_store  # noqa: E402
+
+SOPPO_DISCORD_SERVICE = "soppo-discord.service"
 
 
 def _utc_now() -> str:
@@ -63,6 +66,39 @@ def _namespace_from_item(item: dict[str, Any]) -> tuple[str, ...] | None:
         return None
     parts = tuple(part for part in raw.split("/") if part)
     return parts or None
+
+
+def is_soppo_discord_service_active(
+    *,
+    is_active_runner: Callable[[], str] | None = None,
+) -> bool:
+    runner = is_active_runner or _default_is_active_runner
+    return runner() == "active"
+
+
+def _default_is_active_runner() -> str:
+    completed = subprocess.run(
+        ["systemctl", "--user", "is-active", SOPPO_DISCORD_SERVICE],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.stdout.strip()
+
+
+def assert_safe_to_apply_memories(
+    *,
+    force: bool,
+    is_active_runner: Callable[[], str] | None = None,
+) -> str | None:
+    if force:
+        return None
+    if is_soppo_discord_service_active(is_active_runner=is_active_runner):
+        return (
+            f"{SOPPO_DISCORD_SERVICE} is active. Stop the bot before applying approved memories, "
+            "or pass --force to override."
+        )
+    return None
 
 
 def apply_approved(*, queue_path: Path, memory_store_path: Path) -> tuple[int, list[str]]:
@@ -133,12 +169,21 @@ def main() -> int:
     parser.add_argument("--queue", default=str(ROOT / "memory_review_queue.jsonl"))
     parser.add_argument("--memory-store", default=str(ROOT / "memory_store.json"))
     parser.add_argument("--apply-approved", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Apply approved memories even when soppo-discord.service is active.",
+    )
     parser.add_argument("--summary", action="store_true")
     args = parser.parse_args()
 
     queue_path = Path(args.queue)
     memory_store_path = Path(args.memory_store)
     if args.apply_approved:
+        warning = assert_safe_to_apply_memories(force=args.force)
+        if warning:
+            print(warning, file=sys.stderr)
+            return 2
         applied, errors = apply_approved(queue_path=queue_path, memory_store_path=memory_store_path)
         if applied or errors:
             print(f"Applied approved memories: {applied}")

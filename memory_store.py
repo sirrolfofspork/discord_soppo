@@ -8,9 +8,12 @@ store for channel summaries and structured long-term memory records.
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 Namespace = tuple[str, ...]
 MemoryValue = dict[str, Any]
@@ -60,22 +63,109 @@ def _validate_value(value: MemoryValue) -> MemoryValue:
     return json.loads(json.dumps(value))
 
 
+def _normalize_memory_data(raw: object) -> MemoryData:
+    if not isinstance(raw, dict):
+        raise TypeError("memory store JSON root must be an object")
+    normalized: MemoryData = {}
+    for namespace_path, records in raw.items():
+        if not isinstance(namespace_path, str) or not namespace_path.strip():
+            raise ValueError("stored namespace paths must be non-empty strings")
+        if not isinstance(records, dict):
+            raise TypeError("stored namespace records must be dictionaries")
+        clean_namespace = namespace_path.strip()
+        normalized_records: dict[str, MemoryValue] = {}
+        for key, value in records.items():
+            clean_key = _validate_key(key)
+            normalized_records[clean_key] = _validate_value(value)
+        normalized[clean_namespace] = normalized_records
+    return normalized
+
+
+def _deep_copy_memory_data(data: MemoryData) -> MemoryData:
+    return json.loads(json.dumps(data))
+
+
+def merge_memory_data_for_save(disk: MemoryData, store: MemoryData) -> MemoryData:
+    """Merge in-memory store onto disk; store wins per key, disk-only keys preserved."""
+    merged = _deep_copy_memory_data(disk)
+    for namespace_path, records in store.items():
+        if not isinstance(records, dict):
+            continue
+        namespace_records = merged.setdefault(namespace_path, {})
+        for key, value in records.items():
+            if isinstance(value, dict):
+                namespace_records[key] = _validate_value(value)
+    return merged
+
+
+def merge_memory_data_for_refresh(store: MemoryData, disk: MemoryData) -> MemoryData:
+    """Merge disk into store; store wins per key, disk-only keys are added."""
+    merged = _deep_copy_memory_data(store)
+    for namespace_path, records in disk.items():
+        if not isinstance(records, dict):
+            continue
+        namespace_records = merged.setdefault(namespace_path, {})
+        for key, value in records.items():
+            if key not in namespace_records and isinstance(value, dict):
+                namespace_records[key] = _validate_value(value)
+    return merged
+
+
+def _is_memory_only_path(path: str | Path) -> bool:
+    return str(path) == ":memory:"
+
+
+def _lock_path(store_path: Path) -> Path:
+    return store_path.with_name(store_path.name + ".lock")
+
+
+@contextmanager
+def memory_store_file_lock(store_path: str | Path) -> Iterator[None]:
+    """Cross-process exclusive lock for memory_store.json read/modify/write."""
+    path = Path(store_path)
+    lock_path = _lock_path(path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _load_raw_memory_data(path: Path) -> MemoryData:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as f:
+        raw = json.load(f)
+    return _normalize_memory_data(raw)
+
+
+def _atomic_write_json(path: Path, data: MemoryData) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    tmp_path = path.with_name(path.name + ".tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
 class JsonMemoryStore:
     """Small in-memory facade over flat JSON-backed namespace records."""
 
     def __init__(self, data: MemoryData | None = None) -> None:
         self._data: MemoryData = {}
         if data:
-            for namespace_path, records in data.items():
-                if not isinstance(namespace_path, str) or not namespace_path.strip():
-                    raise ValueError("stored namespace paths must be non-empty strings")
-                if not isinstance(records, dict):
-                    raise TypeError("stored namespace records must be dictionaries")
-                normalized_records: dict[str, MemoryValue] = {}
-                for key, value in records.items():
-                    clean_key = _validate_key(key)
-                    normalized_records[clean_key] = _validate_value(value)
-                self._data[namespace_path.strip()] = normalized_records
+            self.replace_data(data)
+
+    def replace_data(self, data: MemoryData) -> None:
+        self._data = _normalize_memory_data(data)
 
     def get_memory(self, namespace: Namespace, key: str) -> MemoryValue | None:
         namespace_path = _namespace_path(namespace)
@@ -104,19 +194,30 @@ class JsonMemoryStore:
 
 
 def load_memory_store(path: str | Path) -> JsonMemoryStore:
-    store_path = Path(path)
-    if not store_path.exists():
+    if _is_memory_only_path(path):
         return JsonMemoryStore()
-    with store_path.open("r", encoding="utf-8") as f:
-        raw = json.load(f)
-    if not isinstance(raw, dict):
-        raise TypeError("memory store JSON root must be an object")
-    return JsonMemoryStore(raw)
+    store_path = Path(path)
+    with memory_store_file_lock(store_path):
+        return JsonMemoryStore(_load_raw_memory_data(store_path))
+
+
+def refresh_memory_store_from_disk(store: JsonMemoryStore, path: str | Path) -> None:
+    """Pick up externally written namespaces/keys without overwriting in-memory edits."""
+    if _is_memory_only_path(path):
+        return
+    store_path = Path(path)
+    with memory_store_file_lock(store_path):
+        disk = _load_raw_memory_data(store_path)
+        merged = merge_memory_data_for_refresh(store.to_json_data(), disk)
+        store.replace_data(merged)
 
 
 def save_memory_store(path: str | Path, store: JsonMemoryStore) -> None:
+    if _is_memory_only_path(path):
+        return
     store_path = Path(path)
-    store_path.parent.mkdir(parents=True, exist_ok=True)
-    with store_path.open("w", encoding="utf-8") as f:
-        json.dump(store.to_json_data(), f, ensure_ascii=False, indent=2, sort_keys=True)
-        f.write("\n")
+    with memory_store_file_lock(store_path):
+        disk = _load_raw_memory_data(store_path)
+        merged = merge_memory_data_for_save(disk, store.to_json_data())
+        _atomic_write_json(store_path, merged)
+        store.replace_data(merged)

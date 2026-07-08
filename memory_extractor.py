@@ -249,6 +249,20 @@ def _memory_key(memory_type: str, text: str) -> str:
     return f"mem_{digest}"
 
 
+def structured_memory_log_descriptor(record: dict[str, Any]) -> dict[str, str]:
+    """Non-content metadata for structured-memory observability logs."""
+    memory_type = str(record.get("type", "memory"))
+    text = str(record.get("text", ""))
+    key = _memory_key(memory_type, text)
+    text_hash = sha1(_normalize_for_dedupe(text).encode("utf-8")).hexdigest()[:12]
+    return {
+        "type": memory_type,
+        "key": key,
+        "hash": text_hash,
+        "source": str(record.get("source", "")),
+    }
+
+
 class StructuredMemoryStore:
     """Facade for structured memories backed by JsonMemoryStore namespace/key records."""
 

@@ -1,5 +1,47 @@
 # SOPPO Discord Changelog
 
+## 2026-07-07 — Curated JSONL import converter (Phase 1+)
+
+### Tooling
+
+- Added `tools/import_memory_candidates.py` to convert curated memory JSONL rows into pending review-queue items for `tools/process_memory_review_queue.py`.
+- Maps curated fields (`memory_text`, `category`, `importance_scores`, evidence) to runtime candidate schema (`type`, `scope`, `text`, `confidence`) with default namespace `soppo/global/memories`.
+- Validates all input rows before writing, preserves audit metadata in queue `source`, uses stable dedup-safe item IDs, and refuses overwrite unless `--force`.
+- Does not auto-apply or write directly to `memory_store.json`.
+
+### Tests and verification
+
+- Added `tests/test_import_memory_candidates.py` for conversion, overwrite guard, malformed JSONL fail-fast, duplicate source IDs, and category mapping.
+- Verification run:
+  - `./.venv/bin/python -m unittest tests.test_import_memory_candidates tests.test_process_memory_review_queue tests.test_memory_store -v`
+  - Result: targeted 19-test import/store/queue suite passed.
+  - `./.venv/bin/python tools/import_memory_candidates.py memory_import_queue_first_person_plus_soppo_test_candidates_edited.jsonl --output /tmp/soppo_memory_review_queue_test.jsonl --dry-run`
+  - Result: converted 60 curated rows in dry-run mode: 32 character notes, 15 relationship notes, 13 project facts.
+  - `./.venv/bin/python -m unittest discover -v`
+  - Result: full 95-test suite passed.
+  - `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+  - Result: compileall passed.
+
+## 2026-07-07 — Memory store write safety and observability (Phase 1)
+
+### Runtime behavior
+
+- Made `memory_store.json` writes merge-safe and flock-locked (`memory_store.json.lock`) so stale in-memory summary saves no longer erase externally added namespaces such as `soppo/global/memories` or `discord/user/.../memories`.
+- Added `PersistentChannelSummaryMemory.reload_from_disk()` / `refresh_memory_store_from_disk()` so runtime can pick up external writes before structured-memory retrieval.
+- Added structured-memory retrieval observability in `bot.py`: logs count plus type/key/hash/source metadata only (no raw Discord messages or memory text).
+- Hardened `tools/process_memory_review_queue.py --apply-approved` to refuse when `soppo-discord.service` is active unless `--force` is passed.
+
+### Tests and verification
+
+- Added regression tests for merge-safe summary metadata writes, disk refresh, and the review-queue active-service guard.
+- Verification run:
+  - `./.venv/bin/python -m unittest tests.test_memory_store tests.test_structured_memory tests.test_channel_memory tests.test_process_memory_review_queue -v`
+  - Result: targeted 34-test memory/store/queue suite passed.
+  - `./.venv/bin/python -m unittest discover -v`
+  - Result: full 89-test suite passed.
+  - `./.venv/bin/python -m compileall -q -x '(^|/)(\\.venv|\\.git)(/|$)' .`
+  - Result: compileall passed.
+
 ## 2026-06-29 — API-backed memory review queue
 
 ### Runtime behavior

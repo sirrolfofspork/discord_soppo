@@ -12,7 +12,7 @@ from collections import deque
 from pathlib import Path
 from typing import Iterable
 
-from memory_store import JsonMemoryStore, load_memory_store, save_memory_store
+from memory_store import JsonMemoryStore, load_memory_store, refresh_memory_store_from_disk, save_memory_store
 
 Turn = dict[str, str]
 
@@ -213,6 +213,10 @@ class PersistentChannelSummaryMemory(ChannelSummaryMemory):
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         super().__init__(load_memory_store(self.path))
+
+    def reload_from_disk(self) -> None:
+        """Refresh in-memory state from disk without dropping local unsaved keys."""
+        refresh_memory_store_from_disk(self.store, self.path)
 
     def set_summary(self, *, guild_id: int | None, channel_id: int, summary: str) -> None:
         super().set_summary(guild_id=guild_id, channel_id=channel_id, summary=summary)
