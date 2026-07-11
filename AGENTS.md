@@ -205,6 +205,9 @@ If logs contain private Discord content, treat them as sensitive.
 
 Use these files to pick work back up quickly:
 
+- `README.md` — project overview, setup, configuration, run/test commands, troubleshooting.
+- `docs/USER_MANUAL.md` — operator manual: Discord behavior, systemd control, memory review/import workflows.
+- `docs/DEVELOPER_GUIDE.md` — repo layout, architecture boundaries, testing, contribution workflow.
 - `Kanban.md` — current SOPPO memory-improvement board. Contains completed memory work, ready backlog, and guardrails.
 - `CHANGELOG.md` — chronological summary of notable changes and verification commands/results. Start here when asking “what changed last time?”
 - `docs/soppo_soul.md` — persona/runtime anchor for SOPPO’s character voice and identity boundaries.

@@ -92,6 +92,39 @@
   - Verify deferred summary state when fewer than the threshold number of DM turns exist.
   - Verify intentional bounded cross-channel structured-memory retrieval in DMs (not strict DM isolation): relevant guild/channel friend memories may surface; other users' user-scoped memories must not.
 
+## Future / Ideas from Little Lantern review
+
+- [ ] Add memory operation receipts.
+  - Persist compact per-channel/per-DM receipts for memory actions such as applied, queued, dropped, duplicate, or updated.
+  - Include non-content metadata where possible: timestamp, action, type, scope, hash/key, source, and reason code.
+  - Inject a short receipt block so SOPPO knows whether a fact was actually remembered, only queued for review, or rejected as duplicate/risky.
+  - Add tests that queued or dropped candidates are not treated as durable remembered facts.
+
+- [ ] Add vision-safe memory provenance before enabling Discord vision.
+  - Extend structured memory records with explicit provenance fields such as `source`, `confidence`, `requires_review`, and `evidence_ref` / Discord message reference.
+  - Treat image-derived observations as candidates by default, not canon or high-confidence durable facts.
+  - Distinguish user-explicit statements from inferred visual observations in retrieval and prompt wording.
+
+- [ ] Add alias/retrieval-term enrichment for near-duplicate memories.
+  - When a near-duplicate structured memory is detected, update hits/timestamps and merge high-signal aliases or retrieval terms instead of creating another record.
+  - Keep canonical memory text stable unless a human-approved review flow rewrites it.
+  - Add tests proving aliases improve lexical recall without broadening retrieval into unrelated channels/users.
+
+- [ ] Add an operator-authored canon/behaviour memory layer.
+  - Create a clearly separate namespace for SKK/Leva-authored rules or canon, distinct from API-extracted memories.
+  - Ensure automated memory review cannot create or modify binding behaviour/canon entries.
+  - Retrieve this layer only through explicit triggers or tightly bounded reserved slots, and inject it as operator-authored context.
+
+- [ ] Add a bounded quiet maintenance pass.
+  - After a channel is quiet, run at most one background maintenance job to refresh neutral summaries, propose memory candidates, and record receipts without sending a Discord reply.
+  - Reuse existing generation locks / summary-in-progress guards so maintenance does not pile up behind live replies.
+  - Keep logs privacy-safe: hashes, counts, reason codes, and status only unless explicitly running an operator review tool.
+
+- [ ] Improve memory review classification by destination.
+  - Extend pruning/review tooling to classify candidates as keep structured memory, move to summary, move to operator canon, move to user profile, discard routine chatter, discard roleplay residue, or queue for SKK.
+  - Surface classification reason codes in JSON/text review output.
+  - Preserve the current review-only posture: no automatic deletion or quarantine without explicit approval.
+
 ## Guardrails
 
 - Change history lives in `CHANGELOG.md`; update it after substantive SOPPO behavior/memory changes.

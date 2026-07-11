@@ -1,243 +1,300 @@
-# SOPPO_Python
+# SOPPO Discord Bot
 
-A small **local Discord chatbot** that role-plays as a video game character. It reads messages in your **`#general`** channel (configurable), sends recent chat context plus the latest line to a configured LLM backend, and posts the reply back in character.
+SOPPO is a Discord chatbot that role-plays as **M4 SOPMOD II** (*Girls' Frontline*). It listens in configured channels, builds a layered prompt (persona, speaker profile, lore, channel summary, structured memories, recent chat), calls a configurable LLM backend, and posts replies in character.
+
+This repository is intended to run on a Linux host (for example the Hermes machine) with a local LLM backend, optional OpenAI for clerical memory work, and optional user-level systemd supervision.
+
+## Documentation map
+
+| Document | Audience | Contents |
+|----------|----------|----------|
+| [README.md](README.md) (this file) | Everyone | Overview, setup, configuration summary, run/test commands |
+| [docs/USER_MANUAL.md](docs/USER_MANUAL.md) | Operators | Day-to-day Discord behavior, systemd control, memory review workflows |
+| [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | Contributors | Repo layout, architecture boundaries, testing, change workflow |
+| [docs/soppo_soul.md](docs/soppo_soul.md) | Character authors | Persona runtime anchor and identity boundaries |
+| [AGENTS.md](AGENTS.md) | AI agents / maintainers | Operating rules and guardrails |
+| [CHANGELOG.md](CHANGELOG.md) | Maintainers | What changed and how it was verified |
+| [Kanban.md](Kanban.md) | Maintainers | Memory-improvement backlog and guardrails |
 
 ## Features
 
-- **Secure token**: `DISCORD_BOT_TOKEN` from environment (via `.env` + `python-dotenv`).
-- **Channel filter**: Prefer exact channel IDs via `DISCORD_ALLOWED_CHANNEL_IDS`; if unset, fall back to channel name via `DISCORD_CHANNEL_NAME` (default `general`), case-insensitive.
-- **Ignores bots by default** and always ignores its own messages. Optional controlled bot-to-bot replies can be enabled with `RESPOND_TO_OTHER_BOTS=true` plus `BOT_AUTHOR_COOLDOWN_SECONDS` loop protection.
-- **Rolling memory**: Recent unsummarized messages per channel (`MAX_CONTEXT_MESSAGES`) plus compact per-channel summaries when history exceeds `MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY`, with a **character cap** (`MAX_PROMPT_CHARS`).
-- **When it replies**:
-  - **Always** when @mentioned, when replying to the bot’s message, or when someone uses **`!soppo`**.
-  - **Sometimes** at random (`SPONTANEOUS_REPLY_CHANCE`, default **0.10**), with a **cooldown** after any reply (`REPLY_COOLDOWN_SECONDS`).
-- **Safety-ish defaults**: Strips risky mass pings from model output; `allowed_mentions` disables `@everyone` / `@here` / user / role pings on sends.
-- **Stub prompt** in `prompts.py` — replace placeholders with your real character.
+- **Discord integration**: Channel ID filter (preferred) or channel-name fallback; ignores self; optional controlled replies to other bots.
+- **Response triggers**: Mentions, reply chains, `!soppo`, configured name aliases (`BOT_NAME_ALIASES`), inferred follow-up window, rare spontaneous replies with cooldown.
+- **Channel sleep/wake**: Per-channel mute without bot replies (`Soppo sleep`, `Sash stand down`, `!soppo stop replying`, and similar).
+- **LLM backends** (switch via `.env`, not code changes): Ollama, LM Studio (OpenAI-compatible local server), OpenAI API.
+- **Layered memory**: Tiny raw transcript, neutral channel summaries, structured long-term memories in `memory_store.json`, optional API memory review queue.
+- **Curated context**: Per-user profiles (`user_profiles.json`), GFL lore snippets (`lore_store.json`), persona in `prompts.py`.
+- **Safety defaults**: Strips risky mass pings from model output; `allowed_mentions` disables `@everyone` / `@here` on sends.
+
+## Architecture (high level)
+
+```text
+main.py          → load .env, load_config(), start bot
+bot.py           → Discord events, should-respond logic, prompt assembly, reply coalescing
+config.py        → Environment loading and validation
+prompts.py       → SOPPO/Sash persona and prompt formatting
+llm_client.py    → Routes live replies to Ollama or OpenAI-compatible APIs
+ollama_client.py → Ollama /api/chat
+openai_client.py → OpenAI API and LM Studio local server
+lore.py          → Keyword lore matching from lore_store.json
+user_profiles.py → Load user_profiles.json at startup
+memory.py        → Channel summary helpers and neutral-summary prompt blocks
+memory_store.py  → JSON namespace/key store (flock-locked, merge-safe writes)
+memory_extractor.py → Deterministic structured-memory extraction and retrieval
+memory_reviewer.py  → Optional API-backed memory candidate review
+tools/*          → Offline memory inspection, import, review, pruning scan
+```
+
+Prompt layers (conceptual order):
+
+1. Stable persona (`prompts.py`)
+2. Current speaker profile (if present in `user_profiles.json`)
+3. Relevant lore (alias match on current/recent text)
+4. Channel neutral summary + structured memories (background only, not live requests)
+5. Small raw recent transcript
+6. Newest live user message (explicitly marked as the message to answer)
+
+Live SOPPO replies use `LLM_BACKEND`. Neutral summaries and optional memory review can use separate clerical backends (`SUMMARY_LLM_BACKEND`, `MEMORY_REVIEW_*`).
 
 ## Requirements
 
 - **Python 3.11+**
-- A **Discord bot** application and token ([Discord Developer Portal](https://discord.com/developers/applications)).
-- One configured LLM backend: **Ollama**, **LM Studio** OpenAI-compatible local server, or **OpenAI API**.
+- A **Discord bot** application and token ([Discord Developer Portal](https://discord.com/developers/applications))
+- One configured LLM backend: **Ollama**, **LM Studio**, or **OpenAI API**
+- For LM Studio: local OpenAI-compatible server running with a loaded model
 
 ## Setup
 
-### 1. Clone or copy this folder
+### 1. Clone and enter the repo
 
 ```bash
-cd SOPPO_Python
+cd /path/to/soppo_discord
 ```
 
-### 2. Create a virtual environment (recommended)
+### 2. Create a virtual environment
 
 ```bash
-python -m venv .venv
-```
-
-**Windows (PowerShell):**
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-**macOS / Linux:**
-
-```bash
-source .venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
+python3 -m venv .venv
+source .venv/bin/activate   # Linux/macOS
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment
+### 3. Configure environment
 
 ```bash
-copy .env.example .env
+cp .env.example .env
 ```
 
-On macOS/Linux use `cp .env.example .env`.
+Edit `.env`. Minimum required values:
 
-Edit **`.env`**:
+- `DISCORD_BOT_TOKEN` — from the Discord Developer Portal
+- `LLM_BACKEND` — `ollama`, `lmstudio`, or `openai`
+- Backend-specific settings (see [Configuration](#configuration))
 
-- Set **`DISCORD_BOT_TOKEN`** to your bot token.
-- Set **`LLM_BACKEND`** to `ollama`, `lmstudio`, or `openai`.
-- Adjust backend settings such as **`OLLAMA_MODEL`** / **`OLLAMA_URL`**, **`LMSTUDIO_BASE_URL`** / **`LMSTUDIO_MODEL`**, or **`OPENAI_API_KEY`** / **`OPENAI_MODEL`** as needed.
-- Adjust **`DISCORD_ALLOWED_CHANNEL_IDS`** for exact per-server channel gating, or leave it empty and use **`DISCORD_CHANNEL_NAME`** as the legacy fallback. Adjust **`SPONTANEOUS_REPLY_CHANCE`**, **`REPLY_COOLDOWN_SECONDS`**, **`MAX_CONTEXT_MESSAGES`**, **`MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY`**, **`SUMMARY_BATCH_SIZE`**, **`MAX_CHANNEL_SUMMARY_CHARS`**, **`MEMORY_STORE_PATH`**, **`MAX_PROMPT_CHARS`** if needed.
+Optional JSON files (not committed; create locally as needed):
 
-Channel filtering priority:
+- `user_profiles.json` — per-Discord-user background for prompt injection
+- `lore_store.json` — curated GFL lore entries (sample entries may ship in repo)
+- `memory_store.json` — created at runtime; holds summaries and structured memories
 
-```env
-# Exact channels, safest for multi-server deployments; takes priority when non-empty.
-DISCORD_ALLOWED_CHANNEL_IDS=123456789012345678,234567890123456789
-
-# Fallback only when DISCORD_ALLOWED_CHANNEL_IDS is empty.
-DISCORD_CHANNEL_NAME=general
-```
-
-Use channel IDs when the bot is in more than one server. That prevents SOPPO from answering in every server that happens to have a `#general`, because of course every server does. Discord is imaginative like that.
-
-Bot-author filtering:
-
-```env
-# Default: ignore other Discord bots. SOPPO always ignores herself either way.
-RESPOND_TO_OTHER_BOTS=false
-
-# Only applies after SOPPO replies to another bot author; humans are unaffected.
-BOT_AUTHOR_COOLDOWN_SECONDS=60
-```
-
-Set `RESPOND_TO_OTHER_BOTS=true` only for controlled channels or bridge/testing setups. Other bot messages still have to pass the normal channel filter and trigger logic.
-
-### 5. Discord bot settings
+### 4. Discord bot settings
 
 In the Developer Portal, under **Bot**:
 
-- Enable **Privileged Gateway Intents** → **Message Content Intent** (required for reading message text).
+- Enable **Privileged Gateway Intents** → **Message Content Intent** (required)
 
-Invite the bot with **applications.commands** (optional for later) and permissions to **Read Messages** / **Send Messages** in the target channel.
+Invite the bot with permissions to **Read Messages**, **Send Messages**, and **Read Message History** in target channels.
 
-### 6. LLM backend
+### 5. LLM backend
 
-#### Ollama
-
-Ensure Ollama is running and the model exists, for example:
+**Ollama** — ensure the daemon is running and the model is pulled:
 
 ```bash
 ollama pull qwen3.5:4b
 ```
 
-Default API base: `http://localhost:11434`.
+**LM Studio** — start the local OpenAI-compatible server, load a model, then set `LMSTUDIO_BASE_URL` and `LMSTUDIO_MODEL` to match.
 
-#### LM Studio
+**OpenAI** — set `OPENAI_API_KEY` and `OPENAI_MODEL`.
 
-Start LM Studio's local OpenAI-compatible server, load a model, then configure:
+## Configuration
 
-```env
-LLM_BACKEND=lmstudio
-LMSTUDIO_BASE_URL=http://localhost:1234/v1
-LMSTUDIO_MODEL=<model-name>
-LMSTUDIO_API_KEY=not-needed
-```
+Copy `.env.example` to `.env`. Variable names match `config.py` and are documented at the bottom of that file.
 
-The model name must match what LM Studio exposes through its local server.
+### Discord and behavior
 
-#### OpenAI API
+| Variable | Purpose |
+|----------|---------|
+| `DISCORD_BOT_TOKEN` | Required bot token |
+| `DISCORD_ALLOWED_CHANNEL_IDS` | Comma-separated channel IDs; **preferred** when set |
+| `DISCORD_CHANNEL_NAME` | Name fallback when IDs unset (default `general`) |
+| `BOT_NAME_ALIASES` | Comma-separated names that count as addressing SOPPO (e.g. `SOPPO,Sash,M4`) |
+| `RESPOND_TO_OTHER_BOTS` | `false` by default |
+| `BOT_AUTHOR_COOLDOWN_SECONDS` | Loop guard after replying to another bot |
+| `SPONTANEOUS_REPLY_CHANCE` | 0.0–1.0 (default `0.10`) |
+| `REPLY_COOLDOWN_SECONDS` | Cooldown after any reply before spontaneous replies |
+| `INFERRED_FOLLOWUP_WINDOW_SECONDS` | Sliding window for follow-up without re-mention (default 180) |
 
-Configure:
+### Live LLM backend
 
-```env
-LLM_BACKEND=openai
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.4-mini
-```
+| Variable | Purpose |
+|----------|---------|
+| `LLM_BACKEND` | `ollama` \| `lmstudio` \| `openai` |
+| `OLLAMA_URL`, `OLLAMA_MODEL` | Ollama settings |
+| `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL`, `LMSTUDIO_API_KEY` | LM Studio settings |
+| `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_TIMEOUT_SECONDS` | OpenAI settings |
+| `OLLAMA_TEMPERATURE`, `OLLAMA_TOP_P`, `OLLAMA_MAX_TOKENS` | Sampling (used where supported) |
 
-## Run locally
+### Memory and context
 
-With venv activated and `.env` in place:
+| Variable | Purpose |
+|----------|---------|
+| `MAX_CONTEXT_MESSAGES` | Rolling unsummarized history cap per channel |
+| `MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY` | Legacy rollover threshold (compatibility/tests) |
+| `SUMMARY_BATCH_SIZE` | Turns folded per legacy rollover |
+| `MAX_CHANNEL_SUMMARY_CHARS` | Legacy summary size cap |
+| `MEMORY_STORE_PATH` | Path to JSON memory store (default `memory_store.json`) |
+| `MAX_PROMPT_CHARS` | Total context character safety valve |
+| `RECENT_RAW_TURNS` | Raw transcript turns after summary (default 3; set in code env, not in `.env.example`) |
+| `SUMMARY_REGEN_MESSAGE_COUNT` | Messages before neutral summary regen (default 10) |
+| `SUMMARY_REGEN_MIN_SECONDS` | Cooldown between neutral summary regens (default 300) |
+| `MAX_NEUTRAL_SUMMARY_CHARS` | Neutral summary size cap (default 1800) |
+| `RESERVED_GLOBAL_MEMORY_SLOTS` | High-value global memories without lexical overlap (0–5, default 2) |
+
+### Clerical / API memory (optional)
+
+| Variable | Purpose |
+|----------|---------|
+| `SUMMARY_LLM_BACKEND` | `reply` (default), `ollama`, `openai`, or `lmstudio` for neutral summaries |
+| `SUMMARY_OPENAI_*` | Optional separate OpenAI settings for summaries |
+| `MEMORY_REVIEW_ENABLED` | `true` to propose memory candidates after summary regen |
+| `MEMORY_REVIEW_LLM_BACKEND` | Backend for review (typically `openai`) |
+| `MEMORY_REVIEW_OPENAI_*` | Optional separate OpenAI settings for review |
+| `MEMORY_REVIEW_QUEUE_PATH` | JSONL queue path (default `memory_review_queue.jsonl`) |
+
+When `SUMMARY_LLM_BACKEND=openai` or memory review uses OpenAI, an API key must be available via the dedicated `*_OPENAI_API_KEY` vars or `OPENAI_API_KEY`.
+
+### Reply shaping
+
+| Variable | Purpose |
+|----------|---------|
+| `DISCORD_REPLY_SOFT_LIMIT` | Target max length before trimming (default 500) |
+| `DISCORD_REPLY_HARD_LIMIT` | Max chars per Discord message chunk (default 1800) |
+
+See [docs/USER_MANUAL.md](docs/USER_MANUAL.md) for operator-facing behavior details and [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for memory namespace layout.
+
+## Running the bot
+
+### Foreground (development)
 
 ```bash
+source .venv/bin/activate
 python main.py
 ```
 
-On startup you should see logs similar to:
+Startup logs include bot user/id, guilds, channel filter mode, spontaneous reply settings, and summary thresholds.
 
-- Bot **username** and id
-- **Guilds** connected
-- Allowed **channel IDs**, or monitored **channel name** fallback
-- **Spontaneous reply chance** and **cooldown**
-- Other-bot response mode and per-bot-author cooldown
-- Channel summary memory threshold, batch size, and summary character cap
+### User systemd service (production)
 
-## Run as a user systemd service
-
-A user-level service template is provided at:
-
-```bash
-deploy/soppo-discord.service
-```
-
-Install or refresh it on the Hermes Linux host with:
+Template: `deploy/soppo-discord.service`. Adjust `WorkingDirectory` and `ExecStart` paths if the repo is not at the default Hermes location.
 
 ```bash
 mkdir -p ~/.config/systemd/user
 cp deploy/soppo-discord.service ~/.config/systemd/user/soppo-discord.service
+# Edit paths in the unit file if needed
 systemctl --user daemon-reload
 systemctl --user enable --now soppo-discord.service
 ```
 
-Operational commands:
+Common commands:
 
 ```bash
 systemctl --user status soppo-discord.service --no-pager
 journalctl --user -u soppo-discord.service -f
 systemctl --user restart soppo-discord.service
+systemctl --user stop soppo-discord.service
 ```
 
-The service runs `.venv/bin/python main.py` from the project root. Secrets stay in the repo-local `.env`, loaded by `main.py`; do not put tokens in the unit file.
+Secrets stay in repo-local `.env` (loaded by `main.py` via `python-dotenv`). Do not put tokens in the unit file.
 
-If `LLM_BACKEND=lmstudio`, LM Studio's local OpenAI-compatible server and the configured model still need to be available. SOPPO can be online while LM Studio is down, but replies will fail until the backend is restored.
+**Note:** If `LLM_BACKEND=lmstudio`, LM Studio must be running separately. The bot may stay online while the LLM is down, but replies will fail until the backend is restored.
 
-## Project layout
+## Testing
 
-| File | Role |
-|------|------|
-| `main.py` | Entry point: logging, `load_dotenv()`, `load_config()`, starts the bot |
-| `config.py` | Reads env vars; tunable defaults documented at bottom of file |
-| `bot.py` | Discord client, intents, `on_message`, history, summary-memory rollover, `should_respond` logic |
-| `memory.py` | Channel-specific summary-memory helpers backed by `memory_store.py` |
-| `memory_store.py` | Generic LangGraph-style namespace/key JSON memory store |
-| `llm_client.py` | LLM backend router: Ollama, LM Studio, or OpenAI; prompt size trimming helper |
-| `ollama_client.py` | Ollama `/api/chat` backend |
-| `openai_client.py` | OpenAI-compatible chat completions backend used by OpenAI and LM Studio |
-| `prompts.py` | SOPPO character prompt and prompt formatting helpers |
-| `.env.example` | Template for `.env` |
-| `requirements.txt` | Dependencies |
+Tests use the standard library `unittest` runner (no pytest config in this repo).
 
-## Tuning cheat sheet
+```bash
+./.venv/bin/python -m unittest discover -v
+```
 
-| What | Where |
-|------|--------|
-| Spontaneous reply chance | `.env` → `SPONTANEOUS_REPLY_CHANCE` |
-| Cooldown after any reply | `.env` → `REPLY_COOLDOWN_SECONDS` |
-| Respond to other Discord bots | `.env` → `RESPOND_TO_OTHER_BOTS` |
-| Other-bot loop cooldown | `.env` → `BOT_AUTHOR_COOLDOWN_SECONDS` |
-| Max unsummarized messages in memory | `.env` → `MAX_CONTEXT_MESSAGES` |
-| Summary rollover threshold | `.env` → `MAX_CONTEXT_MESSAGES_BEFORE_SUMMARY` |
-| Summary batch size | `.env` → `SUMMARY_BATCH_SIZE` |
-| Max per-channel summary chars | `.env` → `MAX_CHANNEL_SUMMARY_CHARS` |
-| Channel summary JSON store path | `.env` → `MEMORY_STORE_PATH` |
-| Max context characters to LLM | `.env` → `MAX_PROMPT_CHARS` |
-| Backend selection | `.env` → `LLM_BACKEND` |
-| Ollama model name | `.env` → `OLLAMA_MODEL` |
-| LM Studio endpoint/model | `.env` → `LMSTUDIO_BASE_URL`, `LMSTUDIO_MODEL` |
-| OpenAI model | `.env` → `OPENAI_MODEL` |
-| Exact channel ID filter | `.env` → `DISCORD_ALLOWED_CHANNEL_IDS` |
-| Channel name fallback | `.env` → `DISCORD_CHANNEL_NAME` |
-| Character voice / rules | `prompts.py` → `build_system_prompt()` |
-| Force reply command | Message containing **`!soppo`** (see `bot.py` → `message_has_trigger`) |
+Targeted suites (examples):
 
-## Extending later
+```bash
+./.venv/bin/python -m unittest tests.test_structured_memory tests.test_channel_memory -v
+./.venv/bin/python -m unittest tests.test_prompts tests.test_followup_soft_close -v
+```
 
-- **Slash commands**: add a `discord.app_commands.CommandTree` in `setup_hook` and sync to a guild or globally.
-- **Per-channel behavior**: extend the existing `DISCORD_ALLOWED_CHANNEL_IDS` gate into per-channel settings or store settings in a dict / small DB.
-- **Stronger “no repeat”**: adjust the `last_bot_reply` block in `prompts.py` or add similarity checks before send.
+After code changes:
+
+```bash
+./.venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git)(/|$)' .
+```
+
+As of 2026-07-07, the full suite is **127 tests** (see [CHANGELOG.md](CHANGELOG.md) for current verification notes).
+
+## Memory tools (offline)
+
+These tools read or write local JSON only. They do not start Discord or call an LLM unless noted.
+
+| Tool | Purpose |
+|------|---------|
+| `tools/inspect_memory.py` | Inspect summaries, structured memories, health metadata |
+| `tools/review_memory_pruning.py` | Review-only scan for pruning candidates (no store mutation) |
+| `tools/import_memory_candidates.py` | Convert curated JSONL into review-queue items |
+| `tools/process_memory_review_queue.py` | Summarize queue; apply human-`approved` items |
+| `review_soppo_memory.sh` | Wrapper around queue summary + apply-approved |
+
+Quick inspect:
+
+```bash
+./.venv/bin/python tools/inspect_memory.py
+./.venv/bin/python tools/inspect_memory.py /path/to/memory_store.json
+```
+
+Memory review workflow is documented in [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
+
+**Guardrail:** `process_memory_review_queue.py --apply-approved` refuses to run while `soppo-discord.service` is active unless `--force` is passed. Stop the service or use `--force` deliberately when applying approved memories.
+
+## Safety and secrets
+
+**Never commit:**
+
+- `.env`, Discord tokens, API keys, OAuth tokens
+- `memory_store.json`, `memory_review_queue.jsonl`, `user_profiles.json` (gitignored; may contain private chat-derived content)
+- `*.log`, `logs/`, `gittoken.txt`
+
+`.gitignore` already excludes these paths. Treat runtime logs and memory stores as sensitive if they contain Discord content.
+
+Edit `user_profiles.json` and restart the bot to refresh in-memory profiles. Lore and persona changes require editing `lore_store.json` or `prompts.py` respectively, then restart.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 |---------|----------------|
-| `Missing or empty environment variable: DISCORD_BOT_TOKEN` | No `.env` or token not set; fix `.env` next to `main.py`. |
-| Bot online but never reads text | **Message Content Intent** not enabled in the portal, or bot lacks **View Channel** / **Read Message History** in `#general`. |
-| Bot ignores all messages | If `DISCORD_ALLOWED_CHANNEL_IDS` is set, the current channel ID is not in that list. If it is empty, the channel is not named like `DISCORD_CHANNEL_NAME` (default `general`), or messages are in a thread / wrong server. |
-| Bot ignores another bot | `RESPOND_TO_OTHER_BOTS` defaults to `false`; set it to `true` only when you want other bots to pass normal channel and trigger checks. If enabled, `BOT_AUTHOR_COOLDOWN_SECONDS` may still suppress rapid loops from the same bot author. |
-| `Could not reach Ollama` | Ollama not running, wrong `OLLAMA_URL`, or firewall blocking `localhost:11434`. |
-| Could not reach LM Studio / connection failed | LM Studio local server is not running, wrong `LMSTUDIO_BASE_URL`, or no model is loaded. |
-| `model '…' not found` / HTTP 404 | That tag is not installed. Run `ollama pull <OLLAMA_MODEL>` or set `OLLAMA_MODEL` to a name from `ollama list`. |
-| Replies too spammy / too quiet | Lower or raise `SPONTANEOUS_REPLY_CHANCE`; increase `REPLY_COOLDOWN_SECONDS`. |
-| `!soppo` does nothing | Must appear as its own token (regex word boundary); not inside another word. |
+| `Missing or empty environment variable: DISCORD_BOT_TOKEN` | No `.env` or empty token |
+| Bot online but never reads text | Message Content Intent disabled, or missing channel permissions |
+| Bot ignores all messages | Channel not in `DISCORD_ALLOWED_CHANNEL_IDS`, or name mismatch when using fallback |
+| Bot ignores another bot | `RESPOND_TO_OTHER_BOTS=false` (default) |
+| `Could not reach Ollama` | Ollama not running or wrong `OLLAMA_URL` |
+| LM Studio connection errors | Local server not running, wrong base URL, or no model loaded |
+| `model '…' not found` | Pull/install model or fix `OLLAMA_MODEL` / `LMSTUDIO_MODEL` |
+| Replies too spammy / too quiet | Adjust `SPONTANEOUS_REPLY_CHANCE` and `REPLY_COOLDOWN_SECONDS` |
+| `!soppo` does nothing | Must be its own token (word boundary), not embedded in another word |
+| Slow LLM causes stale replies | Reply coalescing keeps one pending message per channel; see [CHANGELOG.md](CHANGELOG.md) |
+| Memory apply refused while bot runs | Stop `soppo-discord.service` or use `--force` on review queue apply |
+| Identity confusion after roleplay | Identity-reset probes purge contaminated context; see `docs/soppo_soul.md` |
+
+For operational procedures (sleep/wake, memory import, service control), see [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
 
 ## License
 
