@@ -37,6 +37,8 @@ memory_store.json.lock
 memory_review_queue.jsonl
 memory_import_queue*.jsonl
 user_profiles.json
+user_profile.json
+*user_profiles_backup*.json
 nul*
 
 

@@ -1,0 +1,12 @@
+{
+  "123456789012345678": {
+    "preferred_name": "Example Name",
+    "username": "example_user#0000",
+    "pronouns": "they/them",
+    "relationship": "Short operator-approved relationship/context label",
+    "notes": [
+      "Short durable preference or context note approved for prompt injection",
+      "Keep entries concise; do not include secrets, tokens, raw logs, or private chat dumps"
+    ]
+  }
+}

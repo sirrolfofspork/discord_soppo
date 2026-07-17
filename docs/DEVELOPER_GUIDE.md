@@ -182,7 +182,9 @@ Add or update tests for behavior changes, especially memory retrieval boundaries
 
 ### Secrets and gitignored data
 
-Never commit `.env`, tokens, logs, `memory_store.json`, `memory_review_queue.jsonl`, or `user_profiles.json`. See `.gitignore`.
+Never commit `.env`, tokens, logs, `memory_store.json`, `memory_review_queue.jsonl`, `user_profiles.json`, or local user-profile backups. See `.gitignore`.
+
+`user_profiles.json` is private runtime data and must remain local-only. The public repository carries `docs/user_profiles_template.json` as the schema/example file instead. To provision a new machine, copy the template to `user_profiles.json` and fill it locally, or restore the real private file from an operator-approved backup. Do not reintroduce a tracked `user_profiles.json`; an old tracked copy can overwrite live local profiles during checkout/pull and erase Sash's current people-memory context. Tedious warning, useful scar tissue.
 
 ## Tooling reference
 

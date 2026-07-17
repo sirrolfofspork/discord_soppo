@@ -93,7 +93,7 @@ Edit `.env`. Minimum required values:
 
 Optional JSON files (not committed; create locally as needed):
 
-- `user_profiles.json` — per-Discord-user background for prompt injection
+- `user_profiles.json` — per-Discord-user background for prompt injection; private and gitignored. Use `docs/user_profiles_template.json` as the public example/schema.
 - `lore_store.json` — curated GFL lore entries (sample entries may ship in repo)
 - `memory_store.json` — created at runtime; holds summaries and structured memories
 
@@ -270,7 +270,7 @@ Memory review workflow is documented in [docs/USER_MANUAL.md](docs/USER_MANUAL.m
 **Never commit:**
 
 - `.env`, Discord tokens, API keys, OAuth tokens
-- `memory_store.json`, `memory_review_queue.jsonl`, `user_profiles.json` (gitignored; may contain private chat-derived content)
+- `memory_store.json`, `memory_review_queue.jsonl`, `user_profiles.json`, user-profile backups (gitignored; may contain private chat-derived content)
 - `*.log`, `logs/`, `gittoken.txt`
 
 `.gitignore` already excludes these paths. Treat runtime logs and memory stores as sensitive if they contain Discord content.
