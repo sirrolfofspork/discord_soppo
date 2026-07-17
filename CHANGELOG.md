@@ -1,5 +1,22 @@
 # SOPPO Discord Changelog
 
+## 2026-07-16 — Family chatroom speaker-boundary cleanup
+
+### Runtime behavior
+
+- Kept `soppo-discord.service` offline while editing memory and prompt boundaries.
+- Strengthened `prompts.py` so SOPPO/Sash may respond to Leva and other bots, but must not narrate their thoughts, actions, reactions, internal state, dialogue, or scene viewpoint.
+- Updated `docs/soppo_soul.md` to scope action narration to SOPPO's own first-person body/voice and to forbid writing Leva's or another bot's actions for them.
+- Rewrote the channel `1486417969083842622` summary to preserve the family-chatroom intent while making SOPPO/Sash and Leva speaker boundaries explicit.
+
+### Verification
+
+- `python3 -m compileall prompts.py memory.py memory_reviewer.py bot.py tests`
+- Result: compileall passed.
+- `python3 -m pytest tests/test_prompts.py tests/test_neutral_context_memory.py tests/test_bot_author_filtering.py -q`
+- Result: `28 passed, 1 warning, 32 subtests passed in 0.46s`.
+- `memory_store.json` and `user_profiles.json` parsed successfully as JSON.
+
 ## 2026-07-07 — Final memory regression coverage
 
 ### Test hardening

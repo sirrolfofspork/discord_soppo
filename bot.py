@@ -46,6 +46,7 @@ from memory_extractor import (
     structured_memory_log_descriptor,
     user_memories_namespace,
 )
+from memory_reviewer import process_memory_candidates, propose_memory_candidates_with_llm
 from memory_store import save_memory_store
 from prompts import (
     build_assistant_message_wrapper,

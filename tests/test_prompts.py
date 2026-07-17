@@ -35,6 +35,8 @@ class SystemPromptTests(unittest.TestCase):
             "Identity recovery protocol",
             "I'm Sash. I got tangled in the scene. Resetting orientation.",
             "temporary roleplay facts",
+            "do not narrate Leva's thoughts, actions, reactions, internal state, or dialogue",
+            "never speak for them or continue their scene from their viewpoint",
         ]
         for phrase in expected_phrases:
             with self.subTest(phrase=phrase):
