@@ -125,7 +125,8 @@ Namespaces are slash-separated paths (see `memory_store.py`). Examples:
 
 - `save_memory_store()` uses flock locking (`memory_store.json.lock`) and merge-safe writes
 - `PersistentChannelSummaryMemory.reload_from_disk()` refreshes before structured retrieval so external tool writes are visible
-- `process_memory_review_queue.py --apply-approved` blocks when `soppo-discord.service` is active (unless `--force`)
+- `process_memory_review_queue.py --apply-approved` blocks when `soppo-discord.service` is active unless `--hot` or `--force` is supplied
+- `--hot` is the preferred no-restart path: approved items are written with locked/merge-safe storage, and the running bot picks them up via runtime disk refresh before the next structured-memory retrieval
 
 ## Testing
 

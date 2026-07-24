@@ -41,7 +41,15 @@ echo
 "$PYTHON" "$TOOL" --queue "$QUEUE" --memory-store "$STORE" --apply-approved --summary
 
 echo
-echo "If there are pending items, edit memory_review_queue.jsonl:"
+echo "Web review UI (pending items, approve/reject in browser):"
+echo "  $PYTHON $ROOT_DIR/tools/serve_memory_review.py"
+echo "Phone/home-network UI:"
+echo "  $PYTHON $ROOT_DIR/tools/serve_memory_review.py --lan"
+echo
+echo "Hot-apply approved memories while SOPPO is running:"
+echo "  $PYTHON $TOOL --queue $QUEUE --memory-store $STORE --apply-approved --hot --summary"
+echo
+echo "If there are pending items, use the web UI above or edit memory_review_queue.jsonl:"
 echo "  pending  -> approved   to allow the memory"
 echo "  pending  -> rejected   to reject it"
 echo "Then run this script again. Tiny bureaucracy, but at least it has a button now."

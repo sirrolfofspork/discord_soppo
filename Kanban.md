@@ -58,7 +58,7 @@
   - `memory_store.json` saves are merge-safe and flock-locked so summary metadata writes do not erase externally added `soppo/global/memories` or `discord/user/.../memories`.
   - `PersistentChannelSummaryMemory.reload_from_disk()` refreshes in-memory state before structured retrieval.
   - Bot logs structured-memory injection count plus type/key/hash metadata without raw Discord or memory text.
-  - `tools/process_memory_review_queue.py --apply-approved` refuses when `soppo-discord.service` is active unless `--force` is supplied.
+  - `tools/process_memory_review_queue.py --apply-approved` refuses when `soppo-discord.service` is active unless `--hot` or `--force` is supplied; `--hot` is the preferred no-restart path because the bot refreshes `memory_store.json` before structured retrieval.
 
 - [x] Phase 1+ curated JSONL import converter.
   - `tools/import_memory_candidates.py` converts curated import JSONL into pending `memory_review_queue.jsonl` items for manual review/apply.

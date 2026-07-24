@@ -4,6 +4,7 @@
 Usage:
   .venv/bin/python tools/process_memory_review_queue.py --summary
   .venv/bin/python tools/process_memory_review_queue.py --apply-approved --summary
+  .venv/bin/python tools/process_memory_review_queue.py --apply-approved --hot --summary
 
 Approve a queued item by editing memory_review_queue.jsonl and setting:
   "status": "approved"
@@ -60,6 +61,66 @@ def _write_jsonl(path: Path, items: list[dict[str, Any]]) -> None:
             f.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+def load_queue(queue_path: Path) -> list[dict[str, Any]]:
+    return _load_jsonl(queue_path)
+
+
+def save_queue(queue_path: Path, items: list[dict[str, Any]]) -> None:
+    _write_jsonl(queue_path, items)
+
+
+def queue_status_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        status = str(item.get("status", "unknown"))
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def filter_reviewable_items(
+    items: list[dict[str, Any]],
+    *,
+    show_all: bool = False,
+) -> list[dict[str, Any]]:
+    if show_all:
+        return list(items)
+    return [item for item in items if item.get("status") == "pending"]
+
+
+def apply_review_decisions(
+    *,
+    queue_path: Path,
+    decisions: dict[str, str],
+    reviewed_by: str = "web",
+    now_iso: str | None = None,
+) -> tuple[int, int]:
+    """Update pending queue items to approved/rejected.
+
+    Returns (updated_count, skipped_non_pending_count).
+    """
+    items = _load_jsonl(queue_path)
+    now = now_iso or _utc_now()
+    updated = 0
+    skipped = 0
+    for item in items:
+        item_id = str(item.get("id", ""))
+        decision = decisions.get(item_id)
+        if decision not in {"approved", "rejected"}:
+            continue
+        if item.get("status") != "pending":
+            skipped += 1
+            continue
+        item["status"] = decision
+        review = item.setdefault("review", {})
+        if isinstance(review, dict):
+            review["reviewed_at"] = now
+            review["reviewed_by"] = reviewed_by
+        updated += 1
+    if updated:
+        _write_jsonl(queue_path, items)
+    return updated, skipped
+
+
 def _namespace_from_item(item: dict[str, Any]) -> tuple[str, ...] | None:
     raw = item.get("namespace")
     if not isinstance(raw, str) or not raw.strip():
@@ -89,14 +150,15 @@ def _default_is_active_runner() -> str:
 def assert_safe_to_apply_memories(
     *,
     force: bool,
+    hot: bool = False,
     is_active_runner: Callable[[], str] | None = None,
 ) -> str | None:
-    if force:
+    if force or hot:
         return None
     if is_soppo_discord_service_active(is_active_runner=is_active_runner):
         return (
             f"{SOPPO_DISCORD_SERVICE} is active. Stop the bot before applying approved memories, "
-            "or pass --force to override."
+            "pass --hot to rely on runtime disk refresh, or pass --force to override."
         )
     return None
 
@@ -174,13 +236,21 @@ def main() -> int:
         action="store_true",
         help="Apply approved memories even when soppo-discord.service is active.",
     )
+    parser.add_argument(
+        "--hot",
+        action="store_true",
+        help=(
+            "Apply while soppo-discord.service is active and rely on the bot's "
+            "runtime memory_store.json refresh before the next structured-memory retrieval."
+        ),
+    )
     parser.add_argument("--summary", action="store_true")
     args = parser.parse_args()
 
     queue_path = Path(args.queue)
     memory_store_path = Path(args.memory_store)
     if args.apply_approved:
-        warning = assert_safe_to_apply_memories(force=args.force)
+        warning = assert_safe_to_apply_memories(force=args.force, hot=args.hot)
         if warning:
             print(warning, file=sys.stderr)
             return 2

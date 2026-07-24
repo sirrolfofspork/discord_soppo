@@ -133,7 +133,25 @@ When `MEMORY_REVIEW_ENABLED=true`, after neutral summary regeneration the API ma
 
 **Human review workflow:**
 
-1. Summarize pending items:
+1. **Web UI (recommended for pending items):**
+
+   ```bash
+   ./.venv/bin/python tools/serve_memory_review.py
+   ```
+
+   Open `http://127.0.0.1:8765/` in a browser. The page lists **pending** queue entries by default with Approve/Reject controls, then offers **Apply approved memories** (same guardrails as the CLI). Use **Show all queue entries** to inspect approved, rejected, or applied rows.
+
+   To review from a phone on the home network:
+
+   ```bash
+   ./.venv/bin/python tools/serve_memory_review.py --lan
+   ```
+
+   Open the printed `http://192.168.x.x:8765/` URL from the phone. LAN mode binds to all interfaces and has no login page, so use it only on a trusted network and stop it when finished.
+
+   Optional flags: `--host`, `--port`, `--lan`, `--queue`, `--memory-store`.
+
+2. Summarize pending items (CLI):
 
    ```bash
    ./review_soppo_memory.sh
@@ -145,7 +163,7 @@ When `MEMORY_REVIEW_ENABLED=true`, after neutral summary regeneration the API ma
    ./.venv/bin/python tools/process_memory_review_queue.py --summary
    ```
 
-2. Edit `memory_review_queue.jsonl`. Change wanted items:
+3. **Manual JSONL edit** (alternative to the web UI). Change wanted items:
 
    ```json
    "status": "pending"
@@ -159,14 +177,18 @@ When `MEMORY_REVIEW_ENABLED=true`, after neutral summary regeneration the API ma
 
    Use `"status": "rejected"` to discard.
 
-3. Apply approved items (prefer bot **stopped**):
+4. Apply approved items (prefer bot **stopped**):
 
    ```bash
    systemctl --user stop soppo-discord.service   # recommended
    ./review_soppo_memory.sh
    ```
 
-   The apply step refuses while `soppo-discord.service` is active unless you pass `--force` to the underlying tool.
+   Or from the web UI: **Apply approved memories**. If SOPPO is running, check **Hot-apply while SOPPO is running** to apply without restarting; the bot reloads `memory_store.json` from disk before the next structured-memory retrieval. The unchecked apply path still refuses while `soppo-discord.service` is active. CLI equivalent:
+
+   ```bash
+   ./.venv/bin/python tools/process_memory_review_queue.py --apply-approved --hot --summary
+   ```
 
 ### Curated memory import
 

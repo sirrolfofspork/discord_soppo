@@ -1,5 +1,35 @@
 # SOPPO Discord Changelog
 
+## 2026-07-24 — Local memory review web UI
+
+### Tools
+
+- Added `tools/serve_memory_review.py`: stdlib-only local HTTP UI on `127.0.0.1:8765` (default) to review **pending** `memory_review_queue.jsonl` items, mark them approved/rejected with review metadata, and run the existing apply-approved path.
+- Added `tools/serve_memory_review.py --lan` for phone/home-network review; it binds to all interfaces, prints localhost plus discovered LAN URLs, and warns that the UI has no login page.
+- Added hot-apply support so approved memories can be injected without restarting `soppo-discord.service`: web UI checkbox **Hot-apply while SOPPO is running** and CLI `tools/process_memory_review_queue.py --apply-approved --hot --summary`.
+- The no-restart path relies on the existing runtime refresh: `PersistentChannelSummaryMemory.reload_from_disk()` runs before structured-memory retrieval, so externally written approved memories are visible before the next relevant response.
+- Extended `tools/process_memory_review_queue.py` with shared helpers: `load_queue`, `save_queue`, `queue_status_counts`, `filter_reviewable_items`, and `apply_review_decisions`.
+
+### Docs
+
+- Updated `README.md` and `docs/USER_MANUAL.md` with web UI startup and workflow notes.
+
+### Verification
+
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git)(/|$)' .`
+- Result: compileall passed.
+- `./.venv/bin/python -m unittest tests.test_serve_memory_review tests.test_process_memory_review_queue tests.test_memory_store -v`
+- Result: `Ran 24 tests in 0.245s — OK`.
+- `bash -n review_soppo_memory.sh`
+- Result: shell syntax check passed.
+- `./.venv/bin/python -m unittest discover -v`
+- Result: `Ran 138 tests in 0.635s — OK`.
+- `git diff --check`
+- Result: clean.
+- Local smoke test served a temp queue on `127.0.0.1:8766`, confirmed default page showed pending item, hid approved item, escaped HTML, and POST `/review` changed the temp item to `rejected` with `reviewed_by=web`.
+- LAN smoke test served a temp queue with `--lan --port 8767`, printed `http://192.168.1.44:8767/`, confirmed `ss` was listening on `0.0.0.0:8767`, and verified the page still showed pending-only rows from localhost before the test server was killed.
+- Hot-apply smoke test used a temp approved queue item and temp `memory_store.json`, ran `tools/process_memory_review_queue.py --apply-approved --hot --summary`, confirmed exit `0`, `Applied approved memories: 1`, queue status `applied`, and runtime-style `reload_from_disk()` visibility coverage in tests.
+
 ## 2026-07-16 — Family chatroom speaker-boundary cleanup
 
 ### Runtime behavior

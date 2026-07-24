@@ -252,6 +252,7 @@ These tools read or write local JSON only. They do not start Discord or call an 
 | `tools/review_memory_pruning.py` | Review-only scan for pruning candidates (no store mutation) |
 | `tools/import_memory_candidates.py` | Convert curated JSONL into review-queue items |
 | `tools/process_memory_review_queue.py` | Summarize queue; apply human-`approved` items |
+| `tools/serve_memory_review.py` | Local browser UI to approve/reject pending queue items |
 | `review_soppo_memory.sh` | Wrapper around queue summary + apply-approved |
 
 Quick inspect:
@@ -263,7 +264,23 @@ Quick inspect:
 
 Memory review workflow is documented in [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
 
-**Guardrail:** `process_memory_review_queue.py --apply-approved` refuses to run while `soppo-discord.service` is active unless `--force` is passed. Stop the service or use `--force` deliberately when applying approved memories.
+Local web review UI:
+
+```bash
+./.venv/bin/python tools/serve_memory_review.py
+# open http://127.0.0.1:8765/
+```
+
+Phone/home-network access:
+
+```bash
+./.venv/bin/python tools/serve_memory_review.py --lan
+# open the printed http://192.168.x.x:8765/ URL from your phone
+```
+
+LAN mode binds to all interfaces and has no login page, so use it only on a trusted home network and stop it when finished.
+
+**Guardrail:** `process_memory_review_queue.py --apply-approved` normally refuses to run while `soppo-discord.service` is active. Use `--hot` to apply approved memories without restarting SOPPO; the running bot refreshes `memory_store.json` from disk before the next structured-memory retrieval. Use `--force` only as a deliberate override.
 
 ## Safety and secrets
 
@@ -291,7 +308,7 @@ Edit `user_profiles.json` and restart the bot to refresh in-memory profiles. Lor
 | Replies too spammy / too quiet | Adjust `SPONTANEOUS_REPLY_CHANCE` and `REPLY_COOLDOWN_SECONDS` |
 | `!soppo` does nothing | Must be its own token (word boundary), not embedded in another word |
 | Slow LLM causes stale replies | Reply coalescing keeps one pending message per channel; see [CHANGELOG.md](CHANGELOG.md) |
-| Memory apply refused while bot runs | Stop `soppo-discord.service` or use `--force` on review queue apply |
+| Memory apply refused while bot runs | Use review UI **Hot-apply while SOPPO is running** or CLI `--hot`; use `--force` only as deliberate override |
 | Identity confusion after roleplay | Identity-reset probes purge contaminated context; see `docs/soppo_soul.md` |
 
 For operational procedures (sleep/wake, memory import, service control), see [docs/USER_MANUAL.md](docs/USER_MANUAL.md).
