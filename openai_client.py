@@ -49,13 +49,14 @@ async def openai_chat(
 
     messages use the same shape as Ollama: role + content strings.
     """
+    api_msgs = _api_messages(messages)
+    if not api_msgs:
+        raise OpenAIClientError("No valid messages to send to OpenAI")
+
     client_kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout_seconds}
     if base_url is not None:
         client_kwargs["base_url"] = base_url
     client = AsyncOpenAI(**client_kwargs)
-    api_msgs = _api_messages(messages)
-    if not api_msgs:
-        raise OpenAIClientError("No valid messages to send to OpenAI")
 
     try:
         response = await client.chat.completions.create(
@@ -65,6 +66,19 @@ async def openai_chat(
             top_p=top_p,
             max_tokens=max_tokens,
         )
+        choice = response.choices[0] if response.choices else None
+        if choice is None or choice.message is None:
+            logger.error("OpenAI response missing choices: %s", response)
+            raise OpenAIClientError("OpenAI returned no choices")
+
+        raw = choice.message.content
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text:
+                return text
+
+        logger.error("OpenAI assistant content empty or missing. Response: %s", response)
+        raise OpenAIClientError("OpenAI returned empty content")
     except RateLimitError as e:
         logger.error("OpenAI rate limit: %s", e)
         raise OpenAIClientError(f"OpenAI rate limited: {e}") from e
@@ -74,17 +88,5 @@ async def openai_chat(
     except APIError as e:
         logger.error("OpenAI API error: %s", e)
         raise OpenAIClientError(f"OpenAI API error: {e}") from e
-
-    choice = response.choices[0] if response.choices else None
-    if choice is None or choice.message is None:
-        logger.error("OpenAI response missing choices: %s", response)
-        raise OpenAIClientError("OpenAI returned no choices")
-
-    raw = choice.message.content
-    if isinstance(raw, str):
-        text = raw.strip()
-        if text:
-            return text
-
-    logger.error("OpenAI assistant content empty or missing. Response: %s", response)
-    raise OpenAIClientError("OpenAI returned empty content")
+    finally:
+        await client.close()

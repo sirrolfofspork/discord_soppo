@@ -76,6 +76,40 @@
   - Channel summary blocks annotate section boundaries and mark closed topics as background only.
   - Legacy unsectioned summaries remain acceptable.
 
+## Spontaneous reply correctness and socket lifecycle
+
+### Phase 1 - implement now
+
+- [x] Remove verbatim previous-response injection from `prompts.py`.
+  - Keep a generic anti-repetition rule without any previous assistant excerpt.
+  - Retain `build_system_prompt(last_bot_reply=...)` API compatibility if useful, but no prior assistant text may appear in the returned prompt.
+- [x] For `reason == "spontaneous"`, build raw conversational history from the exact current trigger `user_turn` only.
+  - Retain separately labeled speaker context, channel summary, structured memory, lore, and returning hint.
+  - Do not alter raw history behavior for mentions, replies, aliases, DMs, triggers, or inferred follow-ups.
+- [x] Fix OpenAI-compatible resource lifecycle in `openai_client.py`.
+  - Validate API messages before constructing `AsyncOpenAI`.
+  - Ensure the client is closed on success, `RateLimitError`, connection failure, timeout, API error, cancellation, missing choices, and empty content.
+  - Prefer the smallest clear implementation supported by the current SDK.
+- [x] Add privacy-safe diagnostics for reply requests.
+  - Include trigger reason, channel ID, Discord message ID, prompt message/role counts, prompt character count, and a short SHA-256 hash of the exact triggering content.
+  - Do not log raw Discord content, profiles, memories, summaries, or secrets.
+  - Keep code simple and deterministic.
+- [x] Add focused regression tests for all above behavior.
+
+### Phase 2 - Kanban only
+
+- [ ] Snapshot delayed coalesced reply state instead of retaining a live `discord.Message` object.
+  - Snapshot content, author ID/display, channel ID, guild ID, message ID, reason, and required reply/reference metadata.
+- [ ] Track coalesced drain tasks.
+  - Name, retain, cancel, and await them during graceful shutdown.
+- [ ] Harden untrusted Discord transcript formatting.
+  - Sanitize display-name control/bracket characters and use unambiguous delimiters for message content without damaging normal Unicode text.
+- [ ] Add regression tests for snapshot immutability, shutdown task cleanup, and transcript-label injection.
+- [ ] Add runtime socket/fd verification procedure.
+  - Distinguish Discord sockets from LM Studio `127.0.0.1:1234`.
+  - Watch total FDs/TCP states over multiple generations.
+  - Verify graceful shutdown releases resources.
+
 ## Ready
 
 - [x] Add memory pruning/quarantine review mode.

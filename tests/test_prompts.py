@@ -83,6 +83,16 @@ class SystemPromptTests(unittest.TestCase):
         self.assertNotRegex(lower, re.compile(r"\bfox\b"))
         self.assertNotRegex(lower, re.compile(r"\btail\b"))
 
+    def test_system_prompt_omits_previous_reply_excerpt_but_keeps_anti_repeat_guidance(self):
+        from prompts import build_system_prompt
+
+        sentinel = "PHASE1_PREVIOUS_REPLY_SENTINEL_UNIQUE_948271"
+        prompt = build_system_prompt(last_bot_reply=f"old answer {sentinel}")
+
+        self.assertNotIn(sentinel, prompt)
+        self.assertIn("Anti-repetition reminder", prompt)
+        self.assertIn("Do not closely repeat your immediately previous wording", prompt)
+
 
 class UserProfilePromptSeparationTests(unittest.TestCase):
     def test_current_speaker_context_marks_profile_as_not_soppo_identity(self):

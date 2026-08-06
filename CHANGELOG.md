@@ -1,5 +1,34 @@
 # SOPPO Discord Changelog
 
+## 2026-08-06 — Spontaneous reply correctness and socket lifecycle Phase 1
+
+### Runtime behavior
+
+- Removed the prior assistant-reply excerpt from the system prompt; anti-repetition guidance remains generic and cannot leak old reply wording back to the model.
+- Isolated spontaneous-reply raw history to the exact current triggering user turn while preserving separately labeled speaker, summary, structured-memory, lore, and returning-user background blocks.
+- Added fail-closed validation so spontaneous prompt assembly rejects a missing or non-user current turn instead of falling back to broader history.
+- Preserved existing recent-turn behavior for mentions, replies, aliases, DMs, explicit triggers, and inferred follow-ups.
+- Added privacy-safe LLM request diagnostics with trigger reason, channel/message IDs, prompt role/count/size metadata, and a short SHA-256 trigger hash without raw Discord content.
+- Closed each OpenAI-compatible async client in a `finally` block after success, SDK errors, cancellation, missing choices, or empty content; invalid message lists are rejected before client construction.
+- Added `memory_store.json.bak*` to `.gitignore` so private local memory backups cannot be committed accidentally.
+
+### Planning
+
+- Added the complete two-phase spontaneous-reply/socket-lifecycle plan to `Kanban.md`.
+- Phase 2 remains unimplemented: immutable pending-message snapshots, tracked shutdown-safe drain tasks, hardened Discord transcript delimiters, associated regression tests, and runtime socket/FD verification.
+
+### Verification
+
+- `./.venv/bin/python -m unittest tests.test_prompts tests.test_reply_request_phase1 tests.test_openai_client -v`
+- Result: `Ran 21 tests` — `OK`.
+- `./.venv/bin/python -m unittest discover -v`
+- Result: `Ran 153 tests` — `OK`.
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git)(/|$)' .`
+- Result: compileall passed.
+- `git diff --check`
+- Result: clean.
+- SOPPO remained offline throughout implementation and verification.
+
 ## 2026-07-24 — Local memory review web UI
 
 ### Tools

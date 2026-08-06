@@ -6,6 +6,7 @@ maintains rolling chat context, and calls the configured LLM backend for complet
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import random
 import re
@@ -501,6 +502,8 @@ def build_prompt_messages(
     returning_hint: str = "",
     history: list[dict[str, str]] | deque[dict[str, str]] | None = None,
     recent_raw_turns: int | None = None,
+    response_reason: str | None = None,
+    current_user_turn: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Assemble LLM messages in the intended context-injection order."""
     messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -516,8 +519,13 @@ def build_prompt_messages(
     ):
         if block:
             messages.append({"role": "system", "content": block})
-    raw_history = list(history or [])
-    if recent_raw_turns is not None:
+    if response_reason == "spontaneous":
+        if current_user_turn is None or current_user_turn.get("role") != "user":
+            raise ValueError("spontaneous prompt requires current_user_turn with role=user")
+        raw_history = [current_user_turn]
+    else:
+        raw_history = list(history or [])
+    if response_reason != "spontaneous" and recent_raw_turns is not None:
         raw_history = raw_history[-max(1, int(recent_raw_turns)) :]
     for index, turn in enumerate(raw_history):
         content = turn["content"]
@@ -525,6 +533,39 @@ def build_prompt_messages(
             content = build_current_live_message_wrapper(content)
         messages.append({"role": turn["role"], "content": content})
     return messages
+
+
+def short_sha256(text: str, *, length: int = 12) -> str:
+    """Short deterministic content fingerprint for privacy-safe request logs."""
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()[:length]
+
+
+def build_reply_request_diagnostics(
+    *,
+    reason: str | None,
+    channel_id: int,
+    message_id: int,
+    prompt_messages: list[dict[str, Any]],
+    triggering_content: str,
+) -> dict[str, Any]:
+    """Build non-content diagnostics for an outbound LLM reply request."""
+    role_counts: dict[str, int] = {}
+    prompt_char_count = 0
+    for msg in prompt_messages:
+        role = str(msg.get("role", "unknown"))
+        role_counts[role] = role_counts.get(role, 0) + 1
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            prompt_char_count += len(content)
+    return {
+        "reason": reason,
+        "channel_id": channel_id,
+        "message_id": message_id,
+        "prompt_message_count": len(prompt_messages),
+        "prompt_role_counts": role_counts,
+        "prompt_char_count": prompt_char_count,
+        "trigger_content_sha256": short_sha256(triggering_content),
+    }
 
 
 _SOFT_CLOSE_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -1483,6 +1524,8 @@ class SoppoBot(discord.Client):
                 returning_hint=returning_hint,
                 history=hist,
                 recent_raw_turns=self.config.recent_raw_turns,
+                response_reason=reason,
+                current_user_turn=user_turn,
             )
 
             llm_messages = trim_messages_to_max_chars(
@@ -1490,15 +1533,24 @@ class SoppoBot(discord.Client):
                 self.config.max_prompt_chars,
             )
 
-            prompt_char_count = sum(
-                len(m.get("content", "")) for m in llm_messages if isinstance(m.get("content"), str)
+            request_diagnostics = build_reply_request_diagnostics(
+                reason=reason,
+                channel_id=ch_id,
+                message_id=message.id,
+                prompt_messages=llm_messages,
+                triggering_content=message.content,
             )
             logger.info(
-                "LLM request prepared (%s): backend=%s messages=%d prompt_chars=%d",
-                reason,
+                "LLM request prepared: backend=%s reason=%s channel_id=%s message_id=%s "
+                "prompt_messages=%d prompt_roles=%s prompt_chars=%d trigger_sha256=%s",
                 self.config.llm_backend,
-                len(llm_messages),
-                prompt_char_count,
+                request_diagnostics["reason"],
+                request_diagnostics["channel_id"],
+                request_diagnostics["message_id"],
+                request_diagnostics["prompt_message_count"],
+                request_diagnostics["prompt_role_counts"],
+                request_diagnostics["prompt_char_count"],
+                request_diagnostics["trigger_content_sha256"],
             )
 
             try:

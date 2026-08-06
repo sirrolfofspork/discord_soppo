@@ -113,16 +113,11 @@ def build_system_prompt(*, last_bot_reply: str | None = None) -> str:
         "- physical/action narration should be brief, first-person, and decisive when used\n"
     )
 
-    anti_repeat = ""
-    if last_bot_reply:
-        excerpt = " ".join(last_bot_reply.strip().split())
-        if len(excerpt) > 180:
-            excerpt = excerpt[:177] + "..."
-        anti_repeat = (
-            "Anti-repetition reminder:\n"
-            f'- Your most recent reply was approximately: "{excerpt}"\n'
-            "- Do not closely repeat that wording, structure, joke, or rhythm.\n"
-        )
+    anti_repeat = (
+        "Anti-repetition reminder:\n"
+        "- Do not closely repeat your immediately previous wording, structure, joke, or rhythm.\n"
+        "- Keep the next reply responsive to the newest live message instead of continuing a loop.\n"
+    )
 
     return "\n\n".join(
         part
