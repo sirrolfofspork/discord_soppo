@@ -105,10 +105,12 @@
 - [ ] Harden untrusted Discord transcript formatting.
   - Sanitize display-name control/bracket characters and use unambiguous delimiters for message content without damaging normal Unicode text.
 - [ ] Add regression tests for snapshot immutability, shutdown task cleanup, and transcript-label injection.
-- [ ] Add runtime socket/fd verification procedure.
-  - Distinguish Discord sockets from LM Studio `127.0.0.1:1234`.
-  - Watch total FDs/TCP states over multiple generations.
-  - Verify graceful shutdown releases resources.
+- [x] Add and execute runtime socket/FD verification procedure.
+  - Distinguished Discord TLS sockets from LM Studio `127.0.0.1:1234` and sampled process FDs plus TCP states while the client process remained alive.
+  - Completed a 50-call normal LM Studio soak with 50/50 responses; SOPPO test-process FDs returned immediately to the `7 FD / 2 internal socket` baseline, LM Studio remained at 138 FDs, and no `ESTABLISHED` or `CLOSE_WAIT` client sockets remained.
+  - Isolated timeout and cancellation cases returned to baseline. A deliberately rapid mixed timeout-then-cancellation sequence intermittently retained `ESTABLISHED` client sockets until process exit, but never produced `CLOSE_WAIT`; retain as a residual SDK timing risk for Phase 2/shutdown hardening.
+  - Live Discord canary verified `name_alias`, `inferred_followup`, soft-close, and true `spontaneous` routing. The spontaneous request contained four labeled system/background messages plus exactly one current user turn and no assistant turns.
+  - SIGINT shutdown removed the SOPPO process and all Discord/LM Studio client sockets; final port-1234 state was listener-only and LM Studio remained at 138 FDs.
 
 ## Ready
 

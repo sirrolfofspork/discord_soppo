@@ -29,6 +29,16 @@
 - Result: clean.
 - SOPPO remained offline throughout implementation and verification.
 
+### Runtime validation
+
+- Ran a live LM Studio smoke request, focused normal/failure-path probes, and a 50-call normal-operation soak through the real `openai_chat()` implementation.
+- The 50-call soak returned 50/50 expected responses; the test process returned immediately to its `7 FD / 2 internal socket` baseline, LM Studio remained at 138 FDs, and no `ESTABLISHED` or `CLOSE_WAIT` client sockets remained.
+- Isolated timeout and cancellation probes returned to baseline. A deliberately rapid mixed timeout-then-cancellation sequence intermittently retained `ESTABLISHED` client sockets until process exit but produced no `CLOSE_WAIT`; this remains a residual OpenAI-SDK timing risk for later shutdown/task-lifecycle hardening.
+- Ran a supervised Discord canary with temporary process-only overrides `SPONTANEOUS_REPLY_CHANCE=1.0` and `REPLY_COOLDOWN_SECONDS=0`; `.env` was unchanged.
+- Confirmed direct alias and inferred-follow-up requests retained normal context, the soft-close path cleared the follow-up latch without replying, and the true spontaneous request was logged as `reason=spontaneous` with four system/background messages, exactly one current user turn, and zero assistant turns.
+- Every completed live Discord generation returned Soppo-to-LM-Studio connections to zero with no `CLOSE_WAIT` sockets.
+- Sent SIGINT to the temporary canary process and verified no SOPPO process remained, both systemd units were inactive, port 1234 was listener-only, LM Studio remained at 138 FDs, and the repository contained no runtime-data changes.
+
 ## 2026-07-24 — Local memory review web UI
 
 ### Tools
