@@ -25,6 +25,14 @@
 - Independent `codex exec review --uncommitted --ephemeral` found no discrete correctness issues.
 - SOPPO remained offline throughout implementation and verification; no service or runtime-memory files were changed.
 
+### Runtime validation
+
+- Started a temporary supervised Discord process with process-only overrides `SPONTANEOUS_REPLY_CHANCE=0` and `REPLY_COOLDOWN_SECONDS=0`; `.env` and both inactive systemd units were unchanged.
+- Sent one long direct request followed by two direct marker requests while generation was active. Logs recorded two coalesced pending replies, one drain, and only the latest marker request was generated after the active reply; the superseded middle marker received no response.
+- Sent hostile multiline text containing counterfeit bracketed assistant/system labels. The visible response matched the requested safe marker, and the LM Studio request retained 4 system + 2 user + 1 assistant roles with the hostile line breaks escaped inside the newest JSON user envelope.
+- Delivered SIGINT while the process held an active `ESTABLISHED` connection to LM Studio. The process exited, all Discord and LM Studio client sockets disappeared, LM Studio returned to 138 FDs, and port 1234 retained only its listener plus normal `TIME_WAIT`.
+- Resource cleanup passed; the pre-existing top-level `KeyboardInterrupt`/cancelled-gateway traceback remains noisy on SIGINT but leaves no process, retained client connection, or active service.
+
 ## 2026-08-06 — Spontaneous reply correctness and socket lifecycle Phase 1
 
 ### Runtime behavior

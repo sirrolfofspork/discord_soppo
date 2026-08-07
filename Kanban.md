@@ -110,6 +110,9 @@
 - [x] Add regression tests for snapshot immutability, shutdown task cleanup, and transcript-label injection.
   - Focused Phase 2 matrix passed 102 tests; full regression discovery passed 170 tests; compileall and `git diff --check` passed.
   - Independent Codex uncommitted review found no discrete correctness issues.
+  - Controlled Discord canary coalesced two pending direct messages while one generation was active, discarded the superseded middle message, and drained only the latest marker after the active reply.
+  - Hostile multiline role/delimiter text remained inside the newest JSON user envelope; LM Studio received the expected 4 system + 2 user + 1 assistant roles and returned the requested safe marker.
+  - SIGINT during an active LM Studio request removed the SOPPO process and all client sockets; LM Studio returned to 138 FDs with listener-only port state plus normal `TIME_WAIT`. The existing top-level `KeyboardInterrupt` traceback remains noisy but cleanup is complete.
 - [x] Add and execute runtime socket/FD verification procedure.
   - Distinguished Discord TLS sockets from LM Studio `127.0.0.1:1234` and sampled process FDs plus TCP states while the client process remained alive.
   - Completed a 50-call normal LM Studio soak with 50/50 responses; SOPPO test-process FDs returned immediately to the `7 FD / 2 internal socket` baseline, LM Studio remained at 138 FDs, and no `ESTABLISHED` or `CLOSE_WAIT` client sockets remained.
