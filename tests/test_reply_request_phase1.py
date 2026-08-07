@@ -6,10 +6,11 @@ import unittest
 class ReplyPromptPhase1Tests(unittest.TestCase):
     def test_spontaneous_prompt_uses_only_current_trigger_as_raw_history(self):
         from bot import build_prompt_messages
+        from prompts import build_user_message_wrapper
 
         stale_user = "PHASE1_STALE_USER_SENTINEL_1201"
         stale_assistant = "PHASE1_STALE_ASSISTANT_SENTINEL_1202"
-        current_trigger = "[Alice]: PHASE1_CURRENT_TRIGGER_SENTINEL_1203"
+        current_trigger = build_user_message_wrapper("Alice", "PHASE1_CURRENT_TRIGGER_SENTINEL_1203")
         messages = build_prompt_messages(
             system_prompt="CORE",
             speaker_context="SPEAKER CONTEXT",

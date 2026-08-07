@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from difflib import SequenceMatcher
 from hashlib import sha1
+import json
 import re
 from typing import Any, Iterable, Literal, NotRequired, TypedDict
 
 from memory_store import JsonMemoryStore, Namespace
+from prompts import CURRENT_LIVE_MESSAGE_HEADER, DISCORD_USER_TURN_KIND, sanitize_prompt_display_name
 
 MemoryType = Literal[
     "running_joke",
@@ -88,14 +90,30 @@ def _parse_user_turn(turn: dict[str, Any]) -> tuple[str, int | None, str] | None
     if not content:
         return None
 
-    display = str(turn.get("author_display") or "User").strip() or "User"
+    if content.startswith(CURRENT_LIVE_MESSAGE_HEADER):
+        content = content[len(CURRENT_LIVE_MESSAGE_HEADER) :].strip()
+
+    display = sanitize_prompt_display_name(str(turn.get("author_display") or "User"))
     raw_user_id = turn.get("author_id") or turn.get("user_id")
     user_id = raw_user_id if isinstance(raw_user_id, int) else None
     message = content
 
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict) and payload.get("kind") == DISCORD_USER_TURN_KIND:
+        raw_author = payload.get("author")
+        raw_message = payload.get("content")
+        if isinstance(raw_author, str):
+            display = sanitize_prompt_display_name(raw_author) or display
+        if isinstance(raw_message, str):
+            message = raw_message.strip()
+        return display, user_id, message
+
     match = re.match(r"^\[([^\]|:]+)(?:\|(\d+))?\]:\s*(.*)$", content)
     if match:
-        display = match.group(1).strip() or display
+        display = sanitize_prompt_display_name(match.group(1).strip()) or display
         if match.group(2):
             user_id = int(match.group(2))
         message = match.group(3).strip()

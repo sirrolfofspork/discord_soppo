@@ -75,6 +75,38 @@ class StructuredMemoryExtractionTests(unittest.TestCase):
 
         self.assertEqual(extract_structured_memories(turns), [])
 
+    def test_extracting_user_preference_from_new_json_turn_wrapper(self):
+        from memory_extractor import extract_structured_memories
+        from prompts import build_user_message_wrapper
+
+        turns = [
+            {
+                "role": "user",
+                "content": build_user_message_wrapper("山田 太郎 🚀", "I prefer Unicode replies 😈."),
+                "author_id": 222,
+                "author_display": "ignored fallback",
+            }
+        ]
+
+        memories = extract_structured_memories(turns)
+
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0]["type"], "user_preference")
+        self.assertEqual(memories[0]["text"], "山田 太郎 🚀 prefers Unicode replies 😈")
+        self.assertEqual(memories[0]["scope"], "user")
+        self.assertEqual(memories[0]["user_id"], 222)
+
+    def test_extracting_legacy_user_turns_remains_backward_compatible(self):
+        from memory_extractor import extract_structured_memories
+
+        turns = [{"role": "user", "content": "[Alice|111]: I prefer short replies when debugging."}]
+
+        memories = extract_structured_memories(turns)
+
+        self.assertEqual(len(memories), 1)
+        self.assertEqual(memories[0]["text"], "Alice prefers short replies when debugging")
+        self.assertEqual(memories[0]["user_id"], 111)
+
 
 class StructuredMemoryStoreTests(unittest.TestCase):
     def test_deduping_similar_memory_updates_existing_record(self):

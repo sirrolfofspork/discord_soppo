@@ -279,12 +279,14 @@ class NeutralSummaryPromptTests(unittest.TestCase):
 
     def test_build_prompt_messages_marks_latest_user_turn_as_live_message(self):
         from bot import build_prompt_messages
+        from prompts import build_user_message_wrapper
 
+        current_turn = build_user_message_wrapper("Alice", "current question")
         history = deque(
             [
                 {"role": "user", "content": "old user"},
                 {"role": "assistant", "content": "old reply"},
-                {"role": "user", "content": "[Alice]: current question"},
+                {"role": "user", "content": current_turn},
             ]
         )
 
@@ -298,7 +300,7 @@ class NeutralSummaryPromptTests(unittest.TestCase):
         self.assertEqual(messages[-1]["role"], "user")
         self.assertEqual(
             messages[-1]["content"],
-            "[Newest live Discord message — answer this message directly now]\n[Alice]: current question",
+            f"[Newest live Discord message — answer this message directly now]\n{current_turn}",
         )
         self.assertNotIn("Newest live Discord message", messages[-3]["content"])
 

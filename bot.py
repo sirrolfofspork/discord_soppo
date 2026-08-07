@@ -12,6 +12,7 @@ import random
 import re
 import time
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -55,6 +56,7 @@ from prompts import (
     build_current_speaker_context,
     build_system_prompt,
     build_user_message_wrapper,
+    sanitize_prompt_display_name,
 )
 from user_profiles import UserProfilesMap, load_user_profiles
 
@@ -86,6 +88,36 @@ ResponseReason = Literal[
 _FOLLOWUP_WINDOW_REFRESH_REASONS: frozenset[str] = frozenset(
     {"mention", "reply_chain", "trigger", "dm_direct", "name_alias", "inferred_followup"}
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PendingReplyReferenceSnapshot:
+    """Scalar-only copy of reply/reference metadata for a coalesced pending message."""
+
+    message_id: int | None
+    channel_id: int | None
+    guild_id: int | None
+    resolved_message_id: int | None
+    resolved_author_id: int | None
+    resolved_author_display: str
+    resolved_author_is_bot: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class PendingReplyMessageSnapshot:
+    """Frozen scalar-only pending reply request captured while a channel reply is active."""
+
+    content: str
+    author_id: int
+    author_display: str
+    author_is_bot: bool
+    channel_id: int
+    guild_id: int | None
+    message_id: int
+    reason: ResponseReason | None
+    priority: int
+    identity_reset: bool
+    reference: PendingReplyReferenceSnapshot | None
 
 # One-line reactions / noise — not treated as continuing a SOPPO-directed thread.
 _AMBIENT_CHATTER = re.compile(
@@ -137,7 +169,8 @@ def is_supported_message_channel(channel: discord.abc.Messageable) -> bool:
 
 def display_name_for_author(author: discord.abc.User) -> str:
     """Best-effort display name for guild members and DM users."""
-    return getattr(author, "display_name", None) or getattr(author, "name", str(author))
+    raw_name = getattr(author, "display_name", None) or getattr(author, "name", str(author))
+    return sanitize_prompt_display_name(str(raw_name))
 
 
 def display_name_for_channel(channel: discord.abc.Messageable) -> str:
@@ -675,7 +708,9 @@ class SoppoBot(discord.Client):
         self._generation_lock = asyncio.Lock()
         # Channel-level reply coalescing: one active reply and one latest useful pending reply per channel.
         self._active_reply_channels: set[int] = set()
-        self._pending_reply_messages: dict[int, dict[str, Any]] = {}
+        self._pending_reply_messages: dict[int, PendingReplyMessageSnapshot] = {}
+        self._coalesced_drain_tasks: set[asyncio.Task[None]] = set()
+        self._shutdown_started = False
 
     def _history_for(self, channel_id: int) -> deque[dict[str, Any]]:
         if channel_id not in self._history:
@@ -733,29 +768,130 @@ class SoppoBot(discord.Client):
         message: discord.Message,
         reason: ResponseReason | None,
         identity_reset: bool = False,
+        referenced_message: discord.Message | None = None,
     ) -> bool:
         """Keep only the latest useful pending reply request for a busy channel."""
         priority = self._reply_queue_priority(reason, identity_reset=identity_reset)
         if priority <= 0:
             return False
         existing = self._pending_reply_messages.get(channel_id)
-        existing_priority = int(existing.get("priority", 0)) if isinstance(existing, dict) else 0
+        existing_priority = existing.priority if existing is not None else 0
         if existing is not None and priority < existing_priority:
             return False
-        self._pending_reply_messages[channel_id] = {
-            "message": message,
-            "reason": reason,
-            "priority": priority,
-            "identity_reset": identity_reset,
-        }
+        self._pending_reply_messages[channel_id] = self._snapshot_pending_reply_message(
+            message=message,
+            reason=reason,
+            priority=priority,
+            identity_reset=identity_reset,
+            referenced_message=referenced_message,
+        )
         return True
 
-    def _pop_pending_reply_message(self, channel_id: int) -> discord.Message | None:
-        pending = self._pending_reply_messages.pop(channel_id, None)
-        if not isinstance(pending, dict):
+    def _snapshot_pending_reply_message(
+        self,
+        *,
+        message: discord.Message,
+        reason: ResponseReason | None,
+        priority: int,
+        identity_reset: bool,
+        referenced_message: discord.Message | None = None,
+    ) -> PendingReplyMessageSnapshot:
+        author = message.author
+        channel = message.channel
+        guild = message.guild
+        reference = self._snapshot_pending_reply_reference(message, referenced_message)
+        return PendingReplyMessageSnapshot(
+            content=str(message.content),
+            author_id=int(author.id),
+            author_display=display_name_for_author(author),
+            author_is_bot=bool(author.bot),
+            channel_id=int(channel.id),
+            guild_id=int(guild.id) if guild is not None else None,
+            message_id=int(message.id),
+            reason=reason,
+            priority=int(priority),
+            identity_reset=bool(identity_reset),
+            reference=reference,
+        )
+
+    def _snapshot_pending_reply_reference(
+        self,
+        message: discord.Message,
+        referenced_message: discord.Message | None,
+    ) -> PendingReplyReferenceSnapshot | None:
+        reference = getattr(message, "reference", None)
+        if reference is None and referenced_message is None:
             return None
-        message = pending.get("message")
-        return message if isinstance(message, discord.Message) else message
+        resolved_author_id: int | None = None
+        resolved_author_display = ""
+        resolved_author_is_bot: bool | None = None
+        resolved_message_id: int | None = None
+        if referenced_message is not None:
+            resolved_message_id = int(referenced_message.id)
+            resolved_author = referenced_message.author
+            resolved_author_id = int(resolved_author.id)
+            resolved_author_display = display_name_for_author(resolved_author)
+            resolved_author_is_bot = bool(resolved_author.bot)
+        return PendingReplyReferenceSnapshot(
+            message_id=self._optional_int(getattr(reference, "message_id", None)),
+            channel_id=self._optional_int(getattr(reference, "channel_id", None)),
+            guild_id=self._optional_int(getattr(reference, "guild_id", None)),
+            resolved_message_id=resolved_message_id,
+            resolved_author_id=resolved_author_id,
+            resolved_author_display=resolved_author_display,
+            resolved_author_is_bot=resolved_author_is_bot,
+        )
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        return int(value) if isinstance(value, int) else None
+
+    def _pop_pending_reply_message(self, channel_id: int) -> PendingReplyMessageSnapshot | None:
+        return self._pending_reply_messages.pop(channel_id, None)
+
+    def _schedule_coalesced_drain(self, snapshot: PendingReplyMessageSnapshot) -> bool:
+        """Start a retained drain task for a queued coalesced reply."""
+        if self._shutdown_started:
+            logger.debug(
+                "Skipping coalesced SOPPO drain after shutdown started for channel_id=%s",
+                snapshot.channel_id,
+            )
+            return False
+        task = asyncio.create_task(
+            self._handle_message(snapshot, coalesced=True),
+            name=f"soppo-coalesced-drain:{snapshot.channel_id}:{snapshot.message_id}",
+        )
+        self._coalesced_drain_tasks.add(task)
+        task.add_done_callback(self._coalesced_drain_done)
+        return True
+
+    def _coalesced_drain_done(self, task: asyncio.Task[None]) -> None:
+        self._coalesced_drain_tasks.discard(task)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            logger.debug("Coalesced SOPPO drain task cancelled: %s", task.get_name())
+        except Exception:
+            logger.exception("Coalesced SOPPO drain task failed: %s", task.get_name())
+
+    async def _shutdown_coalesced_drains(self) -> None:
+        """Stop pending coalesced work and clear reply bookkeeping during shutdown."""
+        self._shutdown_started = True
+        self._pending_reply_messages.clear()
+        current_task = asyncio.current_task()
+        drain_tasks = [task for task in self._coalesced_drain_tasks if task is not current_task]
+        for task in drain_tasks:
+            task.cancel()
+        if drain_tasks:
+            await asyncio.gather(*drain_tasks, return_exceptions=True)
+        self._coalesced_drain_tasks.difference_update(drain_tasks)
+        self._active_reply_channels.clear()
+
+    async def close(self) -> None:
+        try:
+            await self._shutdown_coalesced_drains()
+        finally:
+            await super().close()
 
     def _summary_backend(self) -> str:
         return self.config.llm_backend if self.config.summary_llm_backend == "reply" else self.config.summary_llm_backend
@@ -1292,15 +1428,49 @@ class SoppoBot(discord.Client):
     async def on_message(self, message: discord.Message) -> None:
         await self._handle_message(message, coalesced=False)
 
-    async def _handle_message(self, message: discord.Message, *, coalesced: bool = False) -> None:
+    async def _handle_message(
+        self,
+        message: discord.Message | PendingReplyMessageSnapshot,
+        *,
+        coalesced: bool = False,
+    ) -> None:
         self_user_id = self.user.id if self.user else None
-        if self_user_id is not None and message.author.id == self_user_id:
-            return
-        if not is_supported_message_channel(message.channel):
-            return
-        channel_display_name = display_name_for_channel(message.channel)
+        snapshot = message if isinstance(message, PendingReplyMessageSnapshot) else None
+        send_channel: discord.abc.Messageable | None
+        if snapshot is None:
+            if self_user_id is not None and message.author.id == self_user_id:
+                return
+            if not is_supported_message_channel(message.channel):
+                return
+            send_channel = message.channel
+            channel_display_name = display_name_for_channel(send_channel)
+            content = str(message.content)
+            ch_id = int(message.channel.id)
+            guild_id = message.guild.id if message.guild else None
+            uid = int(message.author.id)
+            author_display_name = display_name_for_author(message.author)
+            author_is_bot = bool(message.author.bot)
+            message_id = int(message.id)
+            is_dm_channel = isinstance(message.channel, discord.DMChannel)
+        else:
+            if self_user_id is not None and snapshot.author_id == self_user_id:
+                return
+            channel = self.get_channel(snapshot.channel_id)
+            if channel is None or not is_supported_message_channel(channel):
+                logger.debug("Dropping coalesced pending reply for unavailable channel_id=%s", snapshot.channel_id)
+                return
+            send_channel = channel
+            channel_display_name = display_name_for_channel(send_channel)
+            content = snapshot.content
+            ch_id = snapshot.channel_id
+            guild_id = snapshot.guild_id
+            uid = snapshot.author_id
+            author_display_name = snapshot.author_display
+            author_is_bot = snapshot.author_is_bot
+            message_id = snapshot.message_id
+            is_dm_channel = isinstance(send_channel, discord.DMChannel)
         if not channel_is_allowed(
-            channel_id=message.channel.id,
+            channel_id=ch_id,
             channel_name=channel_display_name,
             allowed_channel_ids=self.config.discord_allowed_channel_ids,
             fallback_channel_name=self.config.discord_channel_name,
@@ -1309,8 +1479,8 @@ class SoppoBot(discord.Client):
 
         now_mono = time.monotonic()
         if should_ignore_message_author(
-            author_id=message.author.id,
-            author_is_bot=message.author.bot,
+            author_id=uid,
+            author_is_bot=author_is_bot,
             self_user_id=self_user_id,
             respond_to_other_bots=self.config.respond_to_other_bots,
             bot_author_cooldown_seconds=self.config.bot_author_cooldown_seconds,
@@ -1323,15 +1493,10 @@ class SoppoBot(discord.Client):
         if bot_user is None:
             return
 
-        ch_id = message.channel.id
-        guild_id = message.guild.id if message.guild else None
-        uid = message.author.id
-        author_display_name = display_name_for_author(message.author)
-        is_dm_channel = isinstance(message.channel, discord.DMChannel)
         now_wall = time.time()
         reply_claimed = False
 
-        if message_is_sleep_command(message.content):
+        if message_is_sleep_command(content):
             self._put_channel_to_sleep(ch_id)
             logger.warning(
                 "SOPPO sleep command accepted in %s; channel muted until explicit wake command",
@@ -1340,7 +1505,7 @@ class SoppoBot(discord.Client):
             return
 
         if self._channel_is_sleeping(ch_id):
-            if message_is_wake_command(message.content):
+            if message_is_wake_command(content):
                 self._wake_channel(ch_id)
                 logger.warning("SOPPO wake command accepted in %s; channel unmuted", channel_display_name)
             else:
@@ -1348,19 +1513,23 @@ class SoppoBot(discord.Client):
             return
 
         try:
-            referenced = await self._resolve_referenced_message(message)
+            referenced = None if snapshot is not None else await self._resolve_referenced_message(message)
 
             last = self._last_reply_monotonic.get(ch_id)
             aliases = self.config.bot_name_aliases
-            directly_addressed = False if is_dm_channel else is_directly_addressed(message, bot_user, referenced, aliases)
+            directly_addressed = (
+                False
+                if snapshot is not None or is_dm_channel
+                else is_directly_addressed(message, bot_user, referenced, aliases)
+            )
             active_followup = self._inferred_followup_is_active(ch_id, uid, now_wall)
-            if message_is_soft_close(message.content) and (is_dm_channel or directly_addressed or active_followup):
+            if snapshot is None and message_is_soft_close(content) and (is_dm_channel or directly_addressed or active_followup):
                 hist = self._history_for(ch_id)
                 turn = {
                     "role": "user",
                     "content": build_user_message_wrapper(
                         author_display_name,
-                        message.content,
+                        content,
                     ),
                     "author_id": uid,
                     "author_display": author_display_name,
@@ -1371,7 +1540,10 @@ class SoppoBot(discord.Client):
                 await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
                 logger.info("Closed inferred follow-up window without reply in %s", channel_display_name)
                 return
-            if is_dm_channel:
+            if snapshot is not None:
+                should = True
+                reason = snapshot.reason
+            elif is_dm_channel:
                 should = True
                 reason: ResponseReason | None = "dm_direct"
             elif directly_addressed:
@@ -1396,13 +1568,18 @@ class SoppoBot(discord.Client):
                     spontaneous_chance=self.config.spontaneous_reply_chance,
                     now_monotonic=now_mono,
                 )
-            identity_reset_candidate = bool(should and message_needs_identity_recovery(message.content))
-            if should and not coalesced and ch_id in self._active_reply_channels:
+            identity_reset_candidate = (
+                snapshot.identity_reset
+                if snapshot is not None
+                else bool(should and message_needs_identity_recovery(content))
+            )
+            if snapshot is None and should and not coalesced and ch_id in self._active_reply_channels:
                 queued = self._store_pending_reply_message(
                     channel_id=ch_id,
                     message=message,
                     reason=reason,
                     identity_reset=identity_reset_candidate,
+                    referenced_message=referenced,
                 )
                 if queued:
                     logger.info(
@@ -1425,7 +1602,7 @@ class SoppoBot(discord.Client):
                     "role": "user",
                     "content": build_user_message_wrapper(
                         author_display_name,
-                        message.content,
+                        content,
                     ),
                     "author_id": uid,
                     "author_display": author_display_name,
@@ -1439,7 +1616,7 @@ class SoppoBot(discord.Client):
             reply_claimed = True
 
             hist = self._history_for(ch_id)
-            user_line = build_user_message_wrapper(author_display_name, message.content)
+            user_line = build_user_message_wrapper(author_display_name, content)
             user_turn = {
                 "role": "user",
                 "content": user_line,
@@ -1454,8 +1631,8 @@ class SoppoBot(discord.Client):
             # model treat that summary as active conversation. Regenerate after
             # the assistant reply is recorded instead.
 
-            profile = self._get_user_profile(message.author.id)
-            identity_reset = message_needs_identity_recovery(message.content)
+            profile = self._get_user_profile(uid)
+            identity_reset = snapshot.identity_reset if snapshot is not None else message_needs_identity_recovery(content)
             if identity_reset:
                 self._purge_context_for_identity_reset(channel_id=ch_id, guild_id=guild_id, now_wall=now_wall)
                 hist.append(user_turn)
@@ -1468,7 +1645,7 @@ class SoppoBot(discord.Client):
             last_bot = None if identity_reset else self._last_bot_text.get(ch_id)
             speaker_context = build_current_speaker_context(
                 display_name=author_display_name,
-                user_id=message.author.id,
+                user_id=uid,
                 profile=profile,
             )
 
@@ -1488,7 +1665,7 @@ class SoppoBot(discord.Client):
                     guild_id=guild_id,
                     channel_id=ch_id,
                     user_id=uid,
-                    query=message.content,
+                    query=content,
                     limit=5,
                     reserved_global_slots=self.config.reserved_global_memory_slots,
                 )
@@ -1503,7 +1680,7 @@ class SoppoBot(discord.Client):
                     limit=5,
                 )
 
-                lore_matches = find_relevant_lore(message.content, self._lore_store)
+                lore_matches = find_relevant_lore(content, self._lore_store)
                 lore_block = build_lore_context_block(lore_matches)
 
                 add_returning_hint = self._should_add_returning_user_greeting(
@@ -1536,9 +1713,9 @@ class SoppoBot(discord.Client):
             request_diagnostics = build_reply_request_diagnostics(
                 reason=reason,
                 channel_id=ch_id,
-                message_id=message.id,
+                message_id=message_id,
                 prompt_messages=llm_messages,
-                triggering_content=message.content,
+                triggering_content=content,
             )
             logger.info(
                 "LLM request prepared: backend=%s reason=%s channel_id=%s message_id=%s "
@@ -1627,7 +1804,7 @@ class SoppoBot(discord.Client):
 
             try:
                 for part in parts:
-                    await message.channel.send(part, allowed_mentions=safe_mentions)
+                    await send_channel.send(part, allowed_mentions=safe_mentions)
             except discord.DiscordException:
                 logger.exception("Failed to send Discord message")
                 return
@@ -1641,7 +1818,7 @@ class SoppoBot(discord.Client):
             await self._maybe_regenerate_neutral_summary(channel_id=ch_id, guild_id=guild_id, now_wall=time.time())
             sent_mono = time.monotonic()
             self._last_reply_monotonic[ch_id] = sent_mono
-            if message.author.bot:
+            if author_is_bot:
                 self._last_bot_author_reply_monotonic[uid] = sent_mono
             self._last_bot_text[ch_id] = reply_text
             if add_returning_hint:
@@ -1656,14 +1833,17 @@ class SoppoBot(discord.Client):
                 pending_message = self._pop_pending_reply_message(ch_id)
                 if pending_message is not None and not self._channel_is_sleeping(ch_id):
                     logger.info("Draining latest coalesced SOPPO reply in %s", channel_display_name)
-                    asyncio.create_task(self._handle_message(pending_message, coalesced=True))
+                    self._schedule_coalesced_drain(pending_message)
             self._touch_user_channel_activity(ch_id, uid, now_wall)
 
 
 async def run_bot(config: Config) -> None:
     """Construct the client and start the Discord connection."""
     client = SoppoBot(config)
-    await client.start(config.discord_bot_token)
+    try:
+        await client.start(config.discord_bot_token)
+    finally:
+        await client.close()
 
 
 def run_sync(config: Config) -> None:

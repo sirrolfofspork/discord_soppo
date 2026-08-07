@@ -1,5 +1,30 @@
 # SOPPO Discord Changelog
 
+## 2026-08-06 — Coalesced reply and transcript hardening Phase 2
+
+### Runtime behavior
+
+- Replaced queued live `discord.Message` retention with frozen scalar snapshots containing content, author metadata, channel/guild/message IDs, trigger reason, identity-reset state, priority, and reply/reference metadata.
+- Coalesced drains now resolve their send channel by captured ID while using only snapshotted trigger data, so later mutation of Discord message, author, channel, guild, or reference objects cannot change delayed work.
+- Named and retained coalesced drain tasks, observed task failures, and removed tasks deterministically after completion.
+- Added shutdown state that blocks new drains, clears pending/active reply bookkeeping, cancels and awaits retained drains, and always invokes Discord client close from `run_bot()`.
+- Replaced ambiguous `[display]: content` user-turn formatting with compact JSON envelopes using `ensure_ascii=False`, keeping adversarial role labels/newlines as data while preserving international text and emoji.
+- Sanitized control and structural bracket characters from prompt-facing Discord display names while preserving ordinary punctuation, combining marks, international scripts, and ZWJ emoji sequences.
+- Updated structured-memory extraction to parse the new envelope while retaining compatibility with stored legacy `[Display]: message` and `[Display|id]: message` turns.
+
+### Verification
+
+- `./.venv/bin/python -m unittest tests.test_prompts tests.test_structured_memory tests.test_reply_request_phase1 tests.test_neutral_context_memory tests.test_followup_soft_close tests.test_openai_client tests.test_field_regressions -v`
+- Result: `Ran 102 tests` — `OK`.
+- `./.venv/bin/python -m unittest discover -v`
+- Result: `Ran 170 tests` — `OK`.
+- `./.venv/bin/python -m compileall -q -x '(^|/)(\.venv|\.git)(/|$)' .`
+- Result: compileall passed.
+- `git diff --check`
+- Result: clean.
+- Independent `codex exec review --uncommitted --ephemeral` found no discrete correctness issues.
+- SOPPO remained offline throughout implementation and verification; no service or runtime-memory files were changed.
+
 ## 2026-08-06 — Spontaneous reply correctness and socket lifecycle Phase 1
 
 ### Runtime behavior

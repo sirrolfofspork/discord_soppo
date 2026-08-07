@@ -96,15 +96,20 @@
   - Keep code simple and deterministic.
 - [x] Add focused regression tests for all above behavior.
 
-### Phase 2 - Kanban only
+### Phase 2 - completed
 
-- [ ] Snapshot delayed coalesced reply state instead of retaining a live `discord.Message` object.
+- [x] Snapshot delayed coalesced reply state instead of retaining a live `discord.Message` object.
   - Snapshot content, author ID/display, channel ID, guild ID, message ID, reason, and required reply/reference metadata.
-- [ ] Track coalesced drain tasks.
+  - Frozen scalar-only snapshots prevent later mutation of live Discord message, author, channel, guild, and reference objects from changing queued work.
+- [x] Track coalesced drain tasks.
   - Name, retain, cancel, and await them during graceful shutdown.
-- [ ] Harden untrusted Discord transcript formatting.
+  - Shutdown blocks new drains, clears queued/active reply state, observes task failures, and closes the Discord client from `run_bot()` even when startup/connect exits with cancellation or error.
+- [x] Harden untrusted Discord transcript formatting.
   - Sanitize display-name control/bracket characters and use unambiguous delimiters for message content without damaging normal Unicode text.
-- [ ] Add regression tests for snapshot immutability, shutdown task cleanup, and transcript-label injection.
+  - New user turns use compact UTF-8-preserving JSON envelopes; legacy `[Display|id]: message` memory extraction remains supported.
+- [x] Add regression tests for snapshot immutability, shutdown task cleanup, and transcript-label injection.
+  - Focused Phase 2 matrix passed 102 tests; full regression discovery passed 170 tests; compileall and `git diff --check` passed.
+  - Independent Codex uncommitted review found no discrete correctness issues.
 - [x] Add and execute runtime socket/FD verification procedure.
   - Distinguished Discord TLS sockets from LM Studio `127.0.0.1:1234` and sampled process FDs plus TCP states while the client process remained alive.
   - Completed a 50-call normal LM Studio soak with 50/50 responses; SOPPO test-process FDs returned immediately to the `7 FD / 2 internal socket` baseline, LM Studio remained at 138 FDs, and no `ESTABLISHED` or `CLOSE_WAIT` client sockets remained.
