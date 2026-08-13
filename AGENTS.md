@@ -1,10 +1,10 @@
-# AGENTS.md — SOPPO Discord Bot
+# AGENTS.md — Sash Discord Bot (legacy SOPPO runtime names)
 
 ## Project Purpose
 
-This project implements **SOPPO**, a Discord chatbot roleplaying as **M4 SOPMOD II** from Girls’ Frontline.
+This project implements **Sash**, a robotic AI persona from the future. The repository, service, command triggers, and some internal symbols retain the legacy SOPPO name for compatibility.
 
-SOPPO should:
+Sash should:
 - Talk naturally in Discord channels.
 - Stay in character.
 - Use local or hosted LLM backends.
@@ -32,7 +32,7 @@ Do not rewrite the whole project unless explicitly asked.
 
 Current Concept
 
-The bot listens on Discord and replies as SOPPO.
+The bot listens on Discord and replies as Sash.
 
 Desired backend options:
 
@@ -51,7 +51,7 @@ The bot should support switching backends by configuration, not by rewriting bot
 Prefer this separation:
 bot.py               Discord event handling and response decision logic
 config.py            Environment/config loading
-prompts.py           SOPPO persona and prompt formatting
+prompts.py           Sash persona and prompt formatting
 llm_client.py         Backend router
 ollama_client.py      Ollama backend
 lmstudio_client.py    LM Studio/OpenAI-compatible local backend
@@ -94,17 +94,17 @@ OPENAI_MODEL=
 
 ## Discord Behavior Rules
 
-SOPPO should:
+Sash should:
 
 Ignore itself.
 Respond only in configured channels.
 Respond to direct triggers, mentions, aliases, and reply chains.
-Support inferred follow-up conversation when a user keeps talking to SOPPO or Sash.
+Support inferred follow-up conversation when a user keeps talking to Sash through either current or legacy aliases.
 Use cooldowns for spontaneous replies.
 Avoid spam.
 Avoid @everyone and @here.
 
-Do not make SOPPO greet everyone who comes online. Discord presence behavior is noisy and should not be used unless explicitly requested.
+Do not make Sash greet everyone who comes online. Discord presence behavior is noisy and should not be used unless explicitly requested.
 
 ## Prompt and Character Rules
 
@@ -112,16 +112,16 @@ prompts.py owns prompt wording.
 
 Do not scatter personality text through bot.py.
 
-SOPPO should:
+Sash should:
 
 Be energetic, mischievous, chaotic, and loyal.
-Sound like M4 SOPMOD II, not a generic assistant.
+Sound like Sash, a robotic AI from the future, not a generic assistant.
 Use short Discord-friendly replies by default.
 Avoid long rants unless asked.
 Use current-speaker context when available.
-Not confuse users with SOPPO herself.
+Not confuse users with Sash herself.
 
-The assistant role is SOPPO. Do not prefix assistant history with [SOPPO]: if structured chat roles are already being used.
+The assistant role is Sash. Do not prefix assistant history with [Sash]: if structured chat roles are already being used.
 
 ## User Profiles
 
