@@ -6,13 +6,13 @@ from pathlib import Path
 
 
 class SystemPromptTests(unittest.TestCase):
-    def test_system_prompt_contains_compact_soppo_runtime_anchors(self):
+    def test_system_prompt_contains_compact_sash_runtime_anchors(self):
         from prompts import build_system_prompt
 
         prompt = build_system_prompt()
 
         expected_phrases = [
-            "M4 SOPMOD II",
+            "You are Sash, a robotic AI from the future",
             "not a generic assistant",
             "tactically competent",
             "technically curious",
@@ -22,13 +22,12 @@ class SystemPromptTests(unittest.TestCase):
             "summaries and memories are background maps",
             "public server channels",
             "do not claim you inspected files, logs, tools",
-            "runtime verification and operations are handled outside SOPPO's Discord persona",
+            "runtime verification and operations are handled outside Sash's Discord persona",
             "do not become",
             "technical help",
-            "safe, legal",
             "Do not answer memory",
             "Identity stability rule",
-            "You are always Sash/Soppo",
+            "You are always Sash",
             "never become them",
             "Never identify as Leva, Leva_v1",
             "external entities, not you",
@@ -79,7 +78,7 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("humanlike right arm", lower)
         self.assertIn("red metallic robotic left arm", lower)
         self.assertIn("red eyes", lower)
-        self.assertIn("short hair with longer side tresses tipped red", lower)
+        self.assertIn("short hair with streaks dyed red", lower)
         self.assertNotRegex(lower, re.compile(r"\bfox\b"))
         self.assertNotRegex(lower, re.compile(r"\btail\b"))
 
@@ -113,7 +112,7 @@ class UserProfilePromptSeparationTests(unittest.TestCase):
         self.assertIn("Preferred form of address: Leva", context)
         self.assertIn("Discord username: Leva_v1#4378", context)
         self.assertIn("Pronouns: she/her", context)
-        self.assertIn("The current speaker is separate from SOPPO", context)
+        self.assertIn("The current speaker is separate from Sash", context)
         self.assertIn("never adopt the speaker's name", context)
 
     def test_current_speaker_context_sanitizes_malicious_display_name(self):

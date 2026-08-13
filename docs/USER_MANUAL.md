@@ -1,12 +1,12 @@
-# SOPPO Operator Manual
+# Sash Operator Manual
 
-This guide is for day-to-day operation of the SOPPO Discord bot: how she behaves in channels, how to control the service, and how to review or import long-term memory without touching live Discord state unnecessarily.
+This guide is for day-to-day operation of the Sash Discord bot (which retains legacy SOPPO service and command names): how she behaves in channels, how to control the service, and how to review or import long-term memory without touching live Discord state unnecessarily.
 
 For installation and environment variables, see [README.md](../README.md). For code architecture, see [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md).
 
-## What SOPPO does in Discord
+## What Sash does in Discord
 
-SOPPO (also called Sash in some prompts) listens in configured channels, decides whether to reply, assembles context, calls the configured LLM, and posts an in-character response.
+Sash listens in configured channels, decides whether to reply, assembles context, calls the configured LLM, and posts an in-character response. Legacy `Soppo` aliases and `!soppo` commands remain supported.
 
 She **does not**:
 
@@ -26,11 +26,11 @@ Two modes (configured in `.env`):
 
 Use channel IDs when the bot is in multiple servers. A name fallback can accidentally match every server's `#general`.
 
-## When SOPPO replies
+## When Sash replies
 
 ### Always (direct address)
 
-SOPPO replies when any of these are true:
+Sash replies when any of these are true:
 
 - Someone **@mentions** the bot
 - Someone **replies** to one of the bot's messages
@@ -39,15 +39,15 @@ SOPPO replies when any of these are true:
 
 ### Sometimes (inferred follow-up)
 
-After you address SOPPO directly, a **sliding window** (`INFERRED_FOLLOWUP_WINDOW_SECONDS`, default 180 seconds) lets the same user continue talking without re-mentioning her, unless the message looks like ambient chatter or a side thread (reply to someone else, @mention only other users).
+After you address Sash directly, a **sliding window** (`INFERRED_FOLLOWUP_WINDOW_SECONDS`, default 180 seconds) lets the same user continue talking without re-mentioning her, unless the message looks like ambient chatter or a side thread (reply to someone else, @mention only other users).
 
 ### Rarely (spontaneous)
 
-When not directly addressed and not in an inferred follow-up, SOPPO may reply at random with probability `SPONTANEOUS_REPLY_CHANCE` (default 0.10), subject to `REPLY_COOLDOWN_SECONDS` after any prior reply.
+When not directly addressed and not in an inferred follow-up, Sash may reply at random with probability `SPONTANEOUS_REPLY_CHANCE` (default 0.10), subject to `REPLY_COOLDOWN_SECONDS` after any prior reply.
 
 ### Reply coalescing (slow LLM)
 
-If the LLM is slow, SOPPO keeps **one active reply per channel**. While generating, newer messages can replace the pending one by priority:
+If the LLM is slow, Sash keeps **one active reply per channel**. While generating, newer messages can replace the pending one by priority:
 
 1. Identity reset probes
 2. Direct address (mention, reply, trigger, alias)
@@ -58,7 +58,7 @@ This prevents a backlog of stale ghost replies.
 
 ## Sleep and wake (per channel)
 
-Sleep commands **mute SOPPO in the current channel only**. They do **not** send a Discord reply (avoids bot loops).
+Sleep commands **mute Sash in the current channel only**. They do **not** send a Discord reply (avoids bot loops).
 
 **Sleep examples** (must match the short-command patterns in `bot.py`):
 

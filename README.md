@@ -1,6 +1,6 @@
-# SOPPO Discord Bot
+# Sash Discord Bot
 
-SOPPO is a Discord chatbot that role-plays as **M4 SOPMOD II** (*Girls' Frontline*). It listens in configured channels, builds a layered prompt (persona, speaker profile, lore, channel summary, structured memories, recent chat), calls a configurable LLM backend, and posts replies in character.
+Sash is a Discord chatbot persona: a robotic AI from the future with an energetic, mischievous, technically capable voice. It listens in configured channels, builds a layered prompt (persona, speaker profile, lore, channel summary, structured memories, recent chat), calls a configurable LLM backend, and posts replies in character. The repository, systemd service, `!soppo` command, and some internal names remain unchanged for backward compatibility.
 
 This repository is intended to run on a Linux host (for example the Hermes machine) with a local LLM backend, optional OpenAI for clerical memory work, and optional user-level systemd supervision.
 
@@ -32,7 +32,7 @@ This repository is intended to run on a Linux host (for example the Hermes machi
 main.py          → load .env, load_config(), start bot
 bot.py           → Discord events, should-respond logic, prompt assembly, reply coalescing
 config.py        → Environment loading and validation
-prompts.py       → SOPPO/Sash persona and prompt formatting
+prompts.py       → Sash persona and prompt formatting
 llm_client.py    → Routes live replies to Ollama or OpenAI-compatible APIs
 ollama_client.py → Ollama /api/chat
 openai_client.py → OpenAI API and LM Studio local server
@@ -54,7 +54,7 @@ Prompt layers (conceptual order):
 5. Small raw recent transcript
 6. Newest live user message (explicitly marked as the message to answer)
 
-Live SOPPO replies use `LLM_BACKEND`. Neutral summaries and optional memory review can use separate clerical backends (`SUMMARY_LLM_BACKEND`, `MEMORY_REVIEW_*`).
+Live Sash replies use `LLM_BACKEND`. Neutral summaries and optional memory review can use separate clerical backends (`SUMMARY_LLM_BACKEND`, `MEMORY_REVIEW_*`).
 
 ## Requirements
 

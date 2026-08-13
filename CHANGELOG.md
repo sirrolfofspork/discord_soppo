@@ -1,5 +1,13 @@
 # SOPPO Discord Changelog
 
+## 2026-08-12 — Convert live persona from SOPPO to Sash
+
+- Converted the active `prompts.py` identity from M4 SOPMOD II/SOPPO to Sash, a robotic AI from the future.
+- Updated current-facing prompt tests, operator/developer documentation, and the persona runtime anchor.
+- Retained legacy repository, systemd service, command aliases, and internal class names for compatibility.
+- Normalized the edited prompt file back to LF line endings.
+- Kept `soppo-discord.service` offline during the change.
+
 ## 2026-08-06 — Coalesced reply and transcript hardening Phase 2
 
 ### Runtime behavior

@@ -1,4 +1,4 @@
-# SOPPO Developer Guide
+# Sash Developer Guide
 
 Guide for contributors and maintainers working in this repository. Operators may prefer [USER_MANUAL.md](USER_MANUAL.md); setup lives in [README.md](../README.md).
 
@@ -58,7 +58,7 @@ Keep responsibilities separated:
 - **Neutral summaries:** `SUMMARY_LLM_BACKEND` (`reply` reuses live backend, or separate `ollama`/`openai`/`lmstudio`)
 - **Memory review:** `MEMORY_REVIEW_ENABLED` + `MEMORY_REVIEW_LLM_BACKEND` (typically OpenAI)
 
-This split lets SOPPO stay on a local personality model while summaries/review use a faster API model.
+This split lets Sash stay on a local personality model while summaries/review use a faster API model.
 
 ### Prompt assembly (simplified)
 
