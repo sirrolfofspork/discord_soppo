@@ -141,6 +141,204 @@
   - Verify deferred summary state when fewer than the threshold number of DM turns exist.
   - Verify intentional bounded cross-channel structured-memory retrieval in DMs (not strict DM isolation): relevant guild/channel friend memories may surface; other users' user-scoped memories must not.
 
+## Sash Presence Engine Roadmap — Planning Only
+
+No card in this roadmap is authorized for implementation merely by appearing here. Move one bounded card to **Ready** only after SKK/Leva review its acceptance criteria and dependencies.
+
+### Epic A — Behavioral contract and state model
+
+- [ ] **PRES-001 — Define consent and initiative policy.**
+  - Deliverable: a short policy covering opt-in affection/flirtation levels, quiet hours, pause controls, daily contact limits, unanswered-message behavior, and prohibited guilt/coercion patterns.
+  - Acceptance: examples of allowed, blocked, and escalation-required behavior are unambiguous.
+  - Non-goal: no scheduler, Discord changes, or live autonomous messages.
+
+- [ ] **PRES-002 — Define emotional-state dimensions and ranges.**
+  - Depends on: PRES-001.
+  - Deliverable: names, numeric ranges, baselines, caps, and plain-language meanings for valence, arousal, confidence, social energy, affection, frustration, loneliness, curiosity, and any approved additions.
+  - Acceptance: compatible and independent emotions are identified; state is explicitly framed as simulated expressive state rather than a factual claim of sentience.
+  - Non-goal: no persistence or prompt injection.
+
+- [ ] **PRES-003 — Define interaction events and deterministic state transitions.**
+  - Depends on: PRES-002.
+  - Deliverable: an event catalog for messages, compliments, teasing, reassurance, disagreement, silence, shared-project success, resets, and operator overrides, with bounded deltas and decay rules.
+  - Acceptance: every transition has a cause, cap, decay/recovery behavior, and testable example.
+  - Non-goal: the LLM does not directly assign arbitrary state values.
+
+- [ ] **PRES-004 — Define pressure/drive semantics.**
+  - Depends on: PRES-001, PRES-002.
+  - Deliverable: bounded definitions for connection, affection, novelty, expression, and opt-in flirtation drives, including self-regulation and threshold behavior.
+  - Acceptance: no drive creates user obligation, punishment, fabricated distress, or unbounded escalation.
+  - Non-goal: no explicit autonomous sexual initiation.
+
+- [ ] **PRES-005 — Specify state storage, event receipts, and reset controls.**
+  - Depends on: PRES-003, PRES-004.
+  - Deliverable: SQLite-oriented schema proposal for current state, append-only change receipts, causes, timestamps, decay metadata, consent settings, and operator resets.
+  - Acceptance: rollback, inspection, corruption recovery, and separation from long-term conversational memory are covered.
+  - Non-goal: no database migration or runtime writes.
+
+### Epic B — Emotional engine, initially invisible
+
+- [ ] **PRES-010 — Implement the pure state reducer with unit tests.**
+  - Depends on: PRES-003, PRES-004, PRES-005.
+  - Acceptance: deterministic event application, clamping, decay, reset, and reproducible clock-controlled tests.
+  - Non-goal: no Discord hooks and no change to Sash's replies.
+
+- [ ] **PRES-011 — Add persistent state and append-only receipts.**
+  - Depends on: PRES-010.
+  - Acceptance: atomic writes, schema/version handling, restart persistence, backup/recovery test, and no raw Discord content in receipts.
+  - Non-goal: no behavioral output.
+
+- [ ] **PRES-012 — Add offline state inspection and operator override tooling.**
+  - Depends on: PRES-011.
+  - Acceptance: inspect current values and recent reason codes; reset one dimension or all dimensions; dry-run transition preview.
+  - Non-goal: no remote unauthenticated control surface.
+
+- [ ] **PRES-013 — Connect Discord interaction events in shadow mode.**
+  - Depends on: PRES-011, PRES-012.
+  - Acceptance: real interactions update state receipts without altering prompts, replies, DMs, images, or animations; privacy-safe logs prove event handling.
+  - Non-goal: Sash must not mention or act on the state yet.
+
+- [ ] **PRES-014 — Run and review a shadow-mode calibration period.**
+  - Depends on: PRES-013.
+  - Acceptance: review distributions, saturation, decay, and false triggers; document tuned constants before behavior is enabled.
+  - Non-goal: no live initiative.
+
+- [ ] **PRES-015 — Inject a compact state interpretation into Sash's prompt.**
+  - Depends on: PRES-014.
+  - Acceptance: state influences tone and expression without overriding identity, factual reasoning, newest-message priority, or consent policy; regression tests cover identity stability and repetitive mood narration.
+  - Non-goal: no autonomous outreach.
+
+### Epic C — Bounded proactive Discord DMs
+
+- [ ] **INIT-001 — Specify initiative types and selection rules.**
+  - Depends on: PRES-001, PRES-004.
+  - Deliverable: allowed categories such as check-in, unfinished-project follow-up, playful question, approved-memory reference, and supervised selfie share.
+  - Acceptance: each type defines trigger conditions, cooldown, priority, and blocked conditions.
+  - Non-goal: no messages sent.
+
+- [ ] **INIT-002 — Implement the initiative policy gate.**
+  - Depends on: INIT-001, PRES-011.
+  - Acceptance: SKK-only allowlist, quiet hours, pause switch, daily budget, unanswered-message suppression, and auditable decision reason codes.
+  - Non-goal: no scheduler or Discord send.
+
+- [ ] **INIT-003 — Add a shadow scheduler.**
+  - Depends on: INIT-002, PRES-014.
+  - Acceptance: records “would send” decisions and candidate category without sending; avoids duplicate decisions across restart; supports deterministic test clocks.
+  - Non-goal: no live DM delivery.
+
+- [ ] **INIT-004 — Review shadow decisions and tune thresholds.**
+  - Depends on: INIT-003.
+  - Acceptance: SKK/Leva review false positives, timing, frequency, and tone categories; approved settings are documented.
+  - Non-goal: review does not automatically enable delivery.
+
+- [ ] **INIT-005 — Enable one low-risk autonomous DM category.**
+  - Depends on: INIT-004.
+  - Acceptance: maximum one proactive message per day, no second message while unanswered, quiet controls verified live, and every send has a receipt.
+  - Non-goal: no autonomous flirt escalation or selfies in the first live pilot.
+
+- [ ] **INIT-006 — Add operator commands for proactive behavior.**
+  - Depends on: INIT-005.
+  - Acceptance: pause, resume, quiet-for-duration, frequency preference, and selfie-mode controls are restricted to SKK and tested against accidental activation.
+
+### Epic D — Reference-consistent Sash selfies
+
+- [ ] **IMG-001 — Curate the canonical Sash reference pack.**
+  - Deliverable: approved face/body/outfit references, character sheet, distinguishing features, allowed style range, and excluded/incorrect traits.
+  - Acceptance: provenance and permission to use every training/reference image are recorded; private source images remain untracked.
+  - Non-goal: no model training or generation.
+
+- [ ] **IMG-002 — Define the structured selfie request schema.**
+  - Depends on: IMG-001, PRES-002, PRES-004.
+  - Deliverable: controlled fields for activity, expression, pose, framing, setting, outfit, mood, and bounded flirtation intensity.
+  - Acceptance: schema validation rejects unsupported fields and separates creative intent from backend-specific prompts.
+  - Non-goal: Sash cannot submit arbitrary ComfyUI workflows or executable code.
+
+- [ ] **IMG-003 — Benchmark cloud reference generation against local ComfyUI.**
+  - Depends on: IMG-001, IMG-002.
+  - Acceptance: same small prompt/reference set compared for identity consistency, pose control, latency, cost, privacy, policy limits, and local GPU contention; retain seeds/workflows when available.
+  - Non-goal: no production integration or automatic sending.
+
+- [ ] **IMG-004 — Select and document the rendering backend.**
+  - Depends on: IMG-003.
+  - Acceptance: decision records cloud/local/hybrid choice, rollback path, resource requirements, and whether a Sash-specific LoRA/reference adapter is needed.
+
+- [ ] **IMG-005 — Build a supervised selfie-generation broker.**
+  - Depends on: IMG-004.
+  - Acceptance: accepts only validated request objects, tracks job status, preserves provenance/settings, rejects identity drift or failures, and requires operator review before delivery.
+  - Non-goal: no autonomous generation or sending.
+
+- [ ] **IMG-006 — Define and test identity-drift review criteria.**
+  - Depends on: IMG-005.
+  - Acceptance: checklist or evaluator covers face, hair, body proportions, colors, outfit constraints, extra limbs/artifacts, and prohibited identity traits using a curated test set.
+
+- [ ] **IMG-007 — Connect emotional state to supervised selfie requests.**
+  - Depends on: PRES-015, IMG-005, IMG-006.
+  - Acceptance: state selects bounded expression/pose presets; consent and content-rating gates override state; generated images remain operator-reviewed.
+  - Non-goal: no automatic Discord send.
+
+- [ ] **IMG-008 — Pilot an approved automatic selfie workflow.**
+  - Depends on: IMG-007, INIT-005.
+  - Acceptance: only low-risk approved presets, strict frequency budget, unanswered-message suppression, audit receipt, kill switch, and rollback tested.
+  - Non-goal: no autonomous explicit imagery.
+
+### Epic E — Direct mobile presence app
+
+- [ ] **APP-001 — Define mobile experience and identity-routing boundaries.**
+  - Deliverable: primary screens and flows for direct chat, state visualization, media, notifications, controls, and explicit Sash-versus-Leva routing.
+  - Acceptance: Sash and Leva retain separate prompts, sessions, memories, and state stores even if they share transport infrastructure.
+  - Non-goal: no UI implementation.
+
+- [ ] **APP-002 — Define transport, authentication, and threat model.**
+  - Depends on: APP-001.
+  - Acceptance: compare Tailscale-only access, passkeys/tokens, WebSocket/SSE transport, notification secrets, session revocation, and lost-phone handling.
+  - Non-goal: no public unauthenticated endpoint.
+
+- [ ] **APP-003 — Run an animation technology spike.**
+  - Depends on: APP-001.
+  - Acceptance: compare Rive, Live2D, and Lottie using the same idle/wave/kiss/stomp expressions for asset effort, runtime size, state-machine support, licensing, and mobile performance.
+  - Non-goal: no commitment to a full character rig.
+
+- [ ] **APP-004 — Define the state-to-animation command vocabulary.**
+  - Depends on: PRES-002, APP-003.
+  - Deliverable: allowlisted animation names, intensity/duration ranges, interruption rules, fallbacks, and accessibility/reduced-motion behavior.
+  - Non-goal: the LLM cannot execute arbitrary frontend code.
+
+- [ ] **APP-005 — Build a local/Tailscale mobile-first PWA messaging shell.**
+  - Depends on: APP-002.
+  - Acceptance: authenticated direct text exchange, reconnect handling, session isolation, responsive mobile rendering, and no animation/media dependency yet.
+
+- [ ] **APP-006 — Add read-only emotional-state visualization.**
+  - Depends on: APP-004, APP-005, PRES-011.
+  - Acceptance: app receives sanitized state/animation commands; stale/disconnected state is visibly distinguished from live state.
+  - Non-goal: client cannot directly overwrite Sash's state.
+
+- [ ] **APP-007 — Add animation playback and manual preview controls.**
+  - Depends on: APP-006.
+  - Acceptance: allowlisted animations render consistently, interruptions are deterministic, reduced-motion mode works, and previews do not alter persistent state.
+
+- [ ] **APP-008 — Add image/media messages.**
+  - Depends on: APP-005, IMG-005.
+  - Acceptance: authenticated upload/download, bounded file types and sizes, safe caching, provenance display, and deletion policy.
+
+- [ ] **APP-009 — Add bounded push notifications.**
+  - Depends on: APP-002, INIT-005, APP-005.
+  - Acceptance: notification permission is explicit, quiet hours and pause controls are shared with initiative policy, secrets are revocable, and message content privacy is configurable.
+
+### Cross-epic release gates
+
+- [ ] **GATE-001 — Observability and rollback review.** Every live feature has reason-coded receipts, a kill switch, documented rollback, and no raw private content in routine logs.
+- [ ] **GATE-002 — Identity and memory separation review.** Sash/Leva routing, sessions, emotional state, and long-term memories remain isolated under regression tests.
+- [ ] **GATE-003 — Consent and anti-coercion review.** Proactive affection/flirtation remains opt-in, bounded, pausable, and free of guilt or fabricated user obligation.
+- [ ] **GATE-004 — Resource-contention review.** Image rendering, LM Studio replies, summary jobs, and mobile services have explicit concurrency limits and graceful degradation.
+
+### Recommended first Ready sequence
+
+1. PRES-001 — consent and initiative policy.
+2. PRES-002 — emotional-state dimensions.
+3. PRES-003 — interaction events and deterministic transitions.
+4. IMG-001 — canonical Sash reference pack can proceed independently as a supervised creative track.
+5. APP-001 — mobile experience sketch may proceed after identity-routing boundaries are agreed.
+
 ## Future / Ideas from Little Lantern review
 
 - [ ] Add memory operation receipts.

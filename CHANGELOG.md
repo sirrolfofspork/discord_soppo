@@ -1,5 +1,11 @@
 # SOPPO Discord Changelog
 
+## 2026-08-17 — Sash Presence Engine planning roadmap
+
+- Added a planning-only Kanban roadmap for emotional state, bounded proactive DMs, reference-consistent selfies, and a direct mobile presence app.
+- Split the concept into small dependency-ordered cards with deliverables, acceptance criteria, non-goals, and cross-epic release gates.
+- Kept every new card in backlog state; no implementation was authorized, no runtime files changed, and `soppo-discord.service` was not touched.
+
 ## 2026-08-17 — Memory proposal duplicate suppression
 
 - Added a local pre-write duplicate gate for API-proposed memories against same-namespace review history.
