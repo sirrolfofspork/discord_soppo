@@ -1,5 +1,13 @@
 # SOPPO Discord Changelog
 
+## 2026-08-17 — Memory proposal duplicate suppression
+
+- Added a local pre-write duplicate gate for API-proposed memories against same-namespace review history.
+- Pending, approved, applied, and rejected queue entries now suppress exact normalized repeats and conservative high-overlap near-duplicates.
+- Added same-batch duplicate suppression while preserving namespace isolation and existing active-store duplicate handling.
+- Kept `soppo-discord.service` running; this static code change takes effect on its next restart.
+- Verification: `MemoryReviewerTests` ran 9 tests and the full suite ran 175 tests — all passed; compileall and `git diff --check` passed.
+
 ## 2026-08-12 — Convert live persona from SOPPO to Sash
 
 - Converted the active `prompts.py` identity from M4 SOPMOD II/SOPPO to Sash, a robotic AI from the future.

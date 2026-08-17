@@ -54,6 +54,11 @@
   - Safe candidates apply automatically; conflicts/risky/profile-overlap candidates append to ignored `memory_review_queue.jsonl`.
   - `tools/process_memory_review_queue.py` summarizes pending items and applies entries manually marked `approved`.
 
+- [x] Suppress repeated memory-review proposals.
+  - New API candidates are checked against same-namespace pending, approved, applied, and rejected queue history before they can be queued or applied.
+  - Exact normalized matches and conservative high-overlap near-duplicates are dropped, including repeats within one API candidate batch.
+  - Cross-namespace candidates remain independent so one user's review history cannot suppress another user's memory.
+
 - [x] Phase 1 memory store write safety and observability.
   - `memory_store.json` saves are merge-safe and flock-locked so summary metadata writes do not erase externally added `soppo/global/memories` or `discord/user/.../memories`.
   - `PersistentChannelSummaryMemory.reload_from_disk()` refreshes in-memory state before structured retrieval.

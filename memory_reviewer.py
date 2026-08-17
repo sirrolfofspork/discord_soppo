@@ -363,6 +363,60 @@ def apply_safe_candidate(
     )
 
 
+_QUEUE_DEDUPE_STATUSES = frozenset({"pending", "approved", "applied", "rejected"})
+
+
+def _namespace_path(namespace: Namespace | None) -> str | None:
+    if namespace is None:
+        return None
+    return "/".join(namespace)
+
+
+def _is_obvious_duplicate(a: str, b: str) -> bool:
+    if _normalize(a) == _normalize(b):
+        return True
+    return _jaccard(a, b) >= 0.72
+
+
+def _load_queue_items_for_dedupe(path: str | Path) -> list[dict[str, Any]]:
+    queue_path = Path(path)
+    if not queue_path.exists():
+        return []
+    items: list[dict[str, Any]] = []
+    with queue_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict) and item.get("status") in _QUEUE_DEDUPE_STATUSES:
+                items.append(item)
+    return items
+
+
+def _duplicate_in_queue(text: str, namespace_path: str, queue_items: list[dict[str, Any]]) -> bool:
+    for item in queue_items:
+        if item.get("namespace") != namespace_path:
+            continue
+        queued = item.get("candidate")
+        if not isinstance(queued, dict):
+            continue
+        existing_text = str(queued.get("text", ""))
+        if existing_text and _is_obvious_duplicate(text, existing_text):
+            return True
+    return False
+
+
+def _duplicate_in_batch(text: str, namespace_path: str, batch_texts: dict[str, list[str]]) -> bool:
+    for prior in batch_texts.get(namespace_path, []):
+        if _is_obvious_duplicate(text, prior):
+            return True
+    return False
+
+
 def process_memory_candidates(
     candidates: Iterable[dict[str, Any]],
     store: StructuredMemoryStore,
@@ -376,6 +430,8 @@ def process_memory_candidates(
 ) -> dict[str, int]:
     stats = {"applied": 0, "queued": 0, "dropped": 0}
     now_iso = _utc_now()
+    queue_items = _load_queue_items_for_dedupe(review_queue_path)
+    batch_texts: dict[str, list[str]] = {}
     for candidate in candidates:
         review = review_candidate_against_store(
             candidate,
@@ -384,6 +440,14 @@ def process_memory_candidates(
             channel_id=channel_id,
             user_profiles_path=user_profiles_path,
         )
+        namespace_path = _namespace_path(review.namespace)
+        candidate_text = str(candidate.get("text", ""))
+        if review.action in ("apply", "queue") and namespace_path and candidate_text:
+            if _duplicate_in_queue(candidate_text, namespace_path, queue_items) or _duplicate_in_batch(
+                candidate_text, namespace_path, batch_texts
+            ):
+                stats["dropped"] += 1
+                continue
         if review.action == "apply" and review.namespace is not None:
             apply_safe_candidate(candidate, store, namespace=review.namespace, now_iso=now_iso)
             stats["applied"] += 1
@@ -398,6 +462,9 @@ def process_memory_candidates(
             stats["queued"] += 1
         else:
             stats["dropped"] += 1
+            continue
+        if namespace_path and candidate_text:
+            batch_texts.setdefault(namespace_path, []).append(candidate_text)
     if stats["applied"]:
         save_memory_store(memory_store_path, store.store)
     return stats

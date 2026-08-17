@@ -789,6 +789,240 @@ class MemoryReviewerTests(unittest.TestCase):
             records = store.list_memories(channel_memories_namespace(guild_id=1, channel_id=2))
             self.assertEqual(records[0]["source"], "api_memory_review")
 
+    def _write_queue_item(self, path: str, *, status: str, namespace: str, text: str) -> None:
+        import json
+
+        item = {
+            "id": f"test_{status}",
+            "status": status,
+            "created_at": "2026-06-29T00:00:00Z",
+            "candidate": {
+                "type": "user_preference",
+                "scope": "user",
+                "user_id": 111,
+                "text": text,
+                "importance": 0.8,
+                "confidence": 0.95,
+            },
+            "conflicts": [],
+            "namespace": namespace,
+            "source": {"test": True},
+            "review": {"reviewed_by": None, "reviewed_at": None, "notes": ""},
+        }
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def test_rejected_queue_duplicate_is_dropped(self):
+        import tempfile
+        from memory_extractor import StructuredMemoryStore, user_memories_namespace
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore
+
+        text = "Alice prefers concise debugging replies."
+        namespace = "/".join(user_memories_namespace(111))
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_path = f"{tmp}/review.jsonl"
+            self._write_queue_item(queue_path, status="rejected", namespace=namespace, text=text)
+            stats = process_memory_candidates(
+                [
+                    {
+                        "type": "user_preference",
+                        "scope": "user",
+                        "user_id": 111,
+                        "text": text,
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    }
+                ],
+                StructuredMemoryStore(JsonMemoryStore()),
+                memory_store_path=f"{tmp}/memory_store.json",
+                review_queue_path=queue_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(stats["dropped"], 1)
+            self.assertEqual(stats["queued"], 0)
+            self.assertEqual(stats["applied"], 0)
+
+    def test_applied_and_approved_queue_duplicates_are_dropped(self):
+        import tempfile
+        from memory_extractor import StructuredMemoryStore, user_memories_namespace
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore
+
+        text = "Alice keeps a pinned note about memory review tooling."
+        namespace = "/".join(user_memories_namespace(111))
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_path = f"{tmp}/review.jsonl"
+            self._write_queue_item(queue_path, status="applied", namespace=namespace, text=text)
+            self._write_queue_item(
+                queue_path,
+                status="approved",
+                namespace=namespace,
+                text="Alice keeps a pinned note about memory review tooling!",
+            )
+
+            stats = process_memory_candidates(
+                [
+                    {
+                        "type": "user_preference",
+                        "scope": "user",
+                        "user_id": 111,
+                        "text": text,
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    }
+                ],
+                StructuredMemoryStore(JsonMemoryStore()),
+                memory_store_path=f"{tmp}/memory_store.json",
+                review_queue_path=queue_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(stats["dropped"], 1)
+            self.assertEqual(stats["queued"], 0)
+            self.assertEqual(stats["applied"], 0)
+
+    def test_near_duplicate_queue_match_is_conservative(self):
+        import tempfile
+        from memory_extractor import StructuredMemoryStore, user_memories_namespace
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore
+
+        queued_text = "Alice prefers concise debugging replies in this Discord server."
+        proposed_near = "Alice prefers concise debugging replies in this Discord channel."
+        proposed_distinct = "Alice prefers verbose architecture writeups for backend changes."
+        namespace = "/".join(user_memories_namespace(111))
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_path = f"{tmp}/review.jsonl"
+            self._write_queue_item(queue_path, status="pending", namespace=namespace, text=queued_text)
+
+            near_stats = process_memory_candidates(
+                [
+                    {
+                        "type": "user_preference",
+                        "scope": "user",
+                        "user_id": 111,
+                        "text": proposed_near,
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    }
+                ],
+                StructuredMemoryStore(JsonMemoryStore()),
+                memory_store_path=f"{tmp}/memory_store.json",
+                review_queue_path=queue_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+            distinct_stats = process_memory_candidates(
+                [
+                    {
+                        "type": "user_preference",
+                        "scope": "user",
+                        "user_id": 111,
+                        "text": proposed_distinct,
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    }
+                ],
+                StructuredMemoryStore(JsonMemoryStore()),
+                memory_store_path=f"{tmp}/memory_store.json",
+                review_queue_path=queue_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(near_stats["dropped"], 1)
+            self.assertEqual(distinct_stats["applied"], 1)
+
+    def test_queue_duplicate_suppression_is_namespace_scoped(self):
+        import tempfile
+        from memory_extractor import StructuredMemoryStore, user_memories_namespace
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore
+
+        text = "Prefers concise debugging replies."
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_path = f"{tmp}/review.jsonl"
+            self._write_queue_item(
+                queue_path,
+                status="rejected",
+                namespace="/".join(user_memories_namespace(111)),
+                text=text,
+            )
+            stats = process_memory_candidates(
+                [
+                    {
+                        "type": "user_preference",
+                        "scope": "user",
+                        "user_id": 222,
+                        "text": text,
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    }
+                ],
+                StructuredMemoryStore(JsonMemoryStore()),
+                memory_store_path=f"{tmp}/memory_store.json",
+                review_queue_path=queue_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(stats["applied"], 1)
+            self.assertEqual(stats["dropped"], 0)
+
+    def test_same_batch_duplicate_candidates_are_dropped(self):
+        import tempfile
+        from memory_extractor import StructuredMemoryStore, user_memories_namespace
+        from memory_reviewer import process_memory_candidates
+        from memory_store import JsonMemoryStore, load_memory_store
+
+        text = "Alice asked for a tested duplicate-memory fix."
+        with tempfile.TemporaryDirectory() as tmp:
+            queue_path = f"{tmp}/review.jsonl"
+            store_path = f"{tmp}/memory_store.json"
+            stats = process_memory_candidates(
+                [
+                    {
+                        "type": "user_preference",
+                        "scope": "user",
+                        "user_id": 111,
+                        "text": text,
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    },
+                    {
+                        "type": "user_preference",
+                        "scope": "user",
+                        "user_id": 111,
+                        "text": "Alice asked for a tested duplicate memory fix.",
+                        "importance": 0.8,
+                        "confidence": 0.95,
+                    },
+                ],
+                StructuredMemoryStore(JsonMemoryStore()),
+                memory_store_path=store_path,
+                review_queue_path=queue_path,
+                guild_id=1,
+                channel_id=2,
+                source={"test": True},
+            )
+
+            self.assertEqual(stats["applied"], 1)
+            self.assertEqual(stats["dropped"], 1)
+            self.assertEqual(stats["queued"], 0)
+            store = StructuredMemoryStore(JsonMemoryStore())
+            store.store = load_memory_store(store_path)
+            records = store.list_memories(user_memories_namespace(111))
+            self.assertEqual(len(records), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
